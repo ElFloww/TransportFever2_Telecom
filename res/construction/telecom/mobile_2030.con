@@ -1,0 +1,13 @@
+function data()
+return {
+    type = "ASSET_DEFAULT",
+    description = { name = _("Antenne moderne (2030)"), description = _("Réseaux mobiles modernes pour accès Internet.") },
+    availability = { yearFrom = 2030, yearTo = 9999 },
+    category = "misc",
+    params = { { key = "radius", name = _("Rayon (m)"), uiType = "SLIDER", values = { 800, 1200, 1600, 2000 }, defaultIndex = 1 } },
+    updateFn = function(p)
+    local r = ({800,1200,1600,2000})[p.radius + 1]
+    return { models = { { id = "telecom/tower.mdl" } }, metadata = { telecom = { kind = "MOBILE_2030", radius = r } } }
+    end
+}
+end

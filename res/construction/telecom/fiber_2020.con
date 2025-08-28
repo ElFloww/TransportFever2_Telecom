@@ -1,0 +1,13 @@
+function data()
+return {
+    type = "ASSET_DEFAULT",
+    description = { name = _("Nœud fibre (2020)"), description = _("Améliore fortement la croissance des zones raccordées.") },
+    availability = { yearFrom = 2020, yearTo = 9999 },
+    category = "misc",
+    params = { { key = "radius", name = _("Rayon (m)"), uiType = "SLIDER", values = { 300, 450, 600, 900, 1200 }, defaultIndex = 2 } },
+    updateFn = function(p)
+        local r = ({300,450,600,900,1200})[p.radius + 1]
+        return { models = { { id = "telecom/cabinet.mdl" } }, metadata = { telecom = { kind = "FIBER_2020", radius = r } } }
+    end
+}
+end

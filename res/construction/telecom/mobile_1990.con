@@ -1,0 +1,23 @@
+local util = require "util"
+function data()
+    return {
+        type = "ASSET_DEFAULT",
+        description = {
+            name = _("Antenne mobile (1990)"),
+            description = _("Réseau télécom mobile de 1ère génération."),
+        },
+        availability = { yearFrom = 1990, yearTo = 2029 },
+        category = "misc",
+        params = {
+        { 
+            key = "radius", name = _("Rayon (m)"), uiType = "SLIDER", values = { 400, 600, 800, 1000 }, defaultIndex = 1 },
+        },
+        updateFn = function(params)
+        local r = ({400,600,800,1000})[params.radius + 1]
+        return {
+        models = { { id = "telecom/tower.mdl", transf = transf.rotZYXTransl(0,0,0, 0,0,0) } },
+        metadata = { telecom = { kind = "MOBILE_1990", radius = r } }
+        }
+        end
+    }
+end

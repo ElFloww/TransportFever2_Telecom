@@ -1,0 +1,40 @@
+local util = require "util"
+
+
+function data()
+    return {
+        type = "ASSET_DEFAULT",
+        description = {
+            name = _("Téléphone fixe (1850)"),
+            description = _("Nœud filaire de base. Augmente la croissance si les bâtiments sont raccordés."),
+        },
+        availability = {
+            yearFrom = 1850, yearTo = 9999,
+        },
+        category = "misc",
+        params = {
+            {
+                key = "radius",
+                name = _("Rayon de service (m)"),
+                uiType = "SLIDER",
+                values = { 100, 200, 300, 400, 500 },
+                defaultIndex = 2,
+            },
+        },
+        updateFn = function(params)
+        local r = ({100,200,300,400,500})[params.radius + 1]
+        return {
+            models = {
+            {
+                id = "telecom/cabinet.mdl",
+                transf = transf.mulTransl(util.rotationYMatrix(0), {0,0,0}),
+            }
+            },
+            terrainAlignmentLists = {},
+            metadata = {
+                telecom = { kind = "WIRE", radius = r }
+                }
+            }
+        end
+    }
+end
