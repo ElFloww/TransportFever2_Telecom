@@ -276,11 +276,17 @@ function data()
         end,
 
         -- update(state) : appelé à chaque tick de simulation avec l'état courant.
+        -- DOIT retourner state pour que le moteur le conserve entre les ticks.
         update = function(state)
+            -- Sécurité : si state est nil (ne devrait pas arriver), on le recrée
+            if not state then
+                state = { tick = 0, nodes = {}, coverage = {}, lastBonus = 0, townCount = 0, nodeCount = 0 }
+            end
+
             state.tick = (state.tick or 0) + 1
 
             -- Ne recalculer que toutes les TICK_INTERVAL secondes
-            if state.tick % TICK_INTERVAL ~= 0 then return end
+            if state.tick % TICK_INTERVAL ~= 0 then return state end
 
             -- 1. Collecter les nœuds télécoms actifs
             local nodes = collectTelecomNodes()
@@ -297,29 +303,36 @@ function data()
             -- 5. Appliquer le bonus
             applyBonus(bonus)
 
-            -- 6. Sauvegarder pour l'UI/calques
+            -- 6. Mettre à jour l'état
             state.nodes     = nodes
             state.coverage  = coverage
             state.lastBonus = bonus
             state.townCount = #towns
             state.nodeCount = #nodes
+
+            -- IMPORTANT : retourner state pour que TF2 le conserve
+            return state
         end,
 
-        -- Sérialisation pour la sauvegarde
+        -- save(state) : sérialisation pour la sauvegarde de partie.
+        -- Appelé avec state pouvant être nil si update n'a pas encore tourné.
         save = function(state)
+            if not state then
+                return { tick = 0, lastBonus = 0, townCount = 0, nodeCount = 0 }
+            end
             return {
-                tick      = state.tick,
-                lastBonus = state.lastBonus,
-                townCount = state.townCount,
-                nodeCount = state.nodeCount,
-                -- Note : nodes et coverage sont reconstruits au prochain update
-                -- pour éviter de sérialiser de grandes tables
+                tick      = state.tick      or 0,
+                lastBonus = state.lastBonus or 0,
+                townCount = state.townCount or 0,
+                nodeCount = state.nodeCount or 0,
+                -- nodes et coverage sont reconstruits au prochain update
             }
         end,
 
-        -- Désérialisation au chargement d'une sauvegarde
+        -- load(saved) : restauration depuis une sauvegarde.
+        -- Doit retourner l'état complet reconstruit.
         load = function(saved)
-            local state = {
+            return {
                 tick      = saved and saved.tick      or 0,
                 lastBonus = saved and saved.lastBonus or 0,
                 townCount = saved and saved.townCount or 0,
@@ -327,7 +340,6 @@ function data()
                 nodes     = {},
                 coverage  = {},
             }
-            return state
         end,
     }
 end
