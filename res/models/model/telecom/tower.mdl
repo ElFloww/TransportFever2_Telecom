@@ -1,6 +1,6 @@
 -- Modèle : Pylône d'antenne mobile (1990 / 2030)
--- Structure haute avec bras latéraux (style tour GSM/5G).
--- À remplacer par un asset custom .msh si disponible.
+-- Placeholder minimal — aucun mesh, construction visible uniquement via icône.
+-- Remplacer par un vrai asset 3D quand disponible.
 
 function data()
     return {
@@ -12,39 +12,7 @@ function data()
             type   = "BOX",
             params = { halfExtents = { 0.5, 0.5, 12.5 } },
         },
-        lods = {
-            {
-                node = {
-                    children = {
-                        {
-                            name   = "tower_root",
-                            transf = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 },
-                            mesh   = "",
-                            children = {},
-                        },
-                    },
-                },
-                static      = true,
-                visibleFrom = 0,
-                visibleTo   = 1500,
-            },
-            {
-                -- LOD basse distance (vue de loin)
-                node = {
-                    children = {
-                        {
-                            name   = "tower_lod",
-                            transf = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 },
-                            mesh   = "",
-                            children = {},
-                        },
-                    },
-                },
-                static      = true,
-                visibleFrom = 1500,
-                visibleTo   = 5000,
-            },
-        },
+        lods = {},   -- Pas de mesh : construction invisible mais placeable sans crash
         metadata = {},
         version  = 1,
     }
