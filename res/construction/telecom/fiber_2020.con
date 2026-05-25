@@ -35,7 +35,6 @@ function data()
                         transf = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 },
                     },
                 },
-                terrainAlignmentLists = { { type = "EXACT", faces = {} } },
                 metadata = {
                     telecom = {
                         kind   = "WIRE",
