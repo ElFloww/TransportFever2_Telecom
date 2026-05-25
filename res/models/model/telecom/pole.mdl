@@ -1,0 +1,43 @@
+-- Modèle : Poteau téléphonique en bois (époque 1850)
+-- Utilise les meshes d'un poteau électrique vanilla comme base visuelle.
+-- À remplacer par un vrai asset custom si vous avez des fichiers .msh.
+
+function data()
+    return {
+        boundingInfo = {
+            bbMin = { -0.15, -0.15, 0.0 },
+            bbMax = {  0.15,  0.15, 6.5 },
+        },
+        collider = {
+            type   = "BOX",
+            params = { halfExtents = { 0.15, 0.15, 3.25 } },
+        },
+        lods = {
+            {
+                -- Réutilisation du modèle de poteau électrique vanilla.
+                -- Chemin valide dans la plupart des installations TF2.
+                node = {
+                    children = {
+                        {
+                            -- Poteau basse tension (asset vanilla TF2)
+                            -- Si ce chemin est invalide sur votre installation,
+                            -- remplacez par l'un de ceux-ci :
+                            --   "asset/street/power_pole_small_0.mdl"
+                            --   "asset/street/electric_pole_0.mdl"
+                            name      = "pole_root",
+                            transf    = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 },
+                            mesh      = "",  -- Pas de mesh custom : on imbrique un LOD proxy
+                            children  = {},
+                        },
+                    },
+                },
+                static      = true,
+                visibleFrom = 0,
+                visibleTo   = 500,
+            },
+        },
+        -- Metadata vide : c'est le .con qui porte les données télécom
+        metadata = {},
+        version  = 1,
+    }
+end

@@ -1,0 +1,35 @@
+-- Modèle : Armoire/coffret télécom (fibre 2020 / filaire)
+-- Boîtier au sol, style armoire de rue fibre optique.
+-- À remplacer par un asset custom .msh si disponible.
+
+function data()
+    return {
+        boundingInfo = {
+            bbMin = { -0.4, -0.2, 0.0 },
+            bbMax = {  0.4,  0.2, 1.5 },
+        },
+        collider = {
+            type   = "BOX",
+            params = { halfExtents = { 0.4, 0.2, 0.75 } },
+        },
+        lods = {
+            {
+                node = {
+                    children = {
+                        {
+                            name   = "cabinet_root",
+                            transf = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 },
+                            mesh   = "",
+                            children = {},
+                        },
+                    },
+                },
+                static      = true,
+                visibleFrom = 0,
+                visibleTo   = 300,
+            },
+        },
+        metadata = {},
+        version  = 1,
+    }
+end

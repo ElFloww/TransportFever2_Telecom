@@ -1,23 +1,49 @@
-local util = require "util"
+-- Antenne mobile 1990 — 1er réseau mobile
+-- Couvre un rayon plus large que le filaire, bonus croissance ++.
+
 function data()
     return {
         type = "ASSET_DEFAULT",
         description = {
-            name = _("Antenne mobile (1990)"),
-            description = _("Réseau télécom mobile de 1ère génération."),
+            name        = _("Antenne mobile (1990)"),
+            description = _("Premier réseau télécom mobile (2G). Offre une couverture sans fil et stimule davantage la croissance que le réseau filaire."),
         },
-        availability = { yearFrom = 1990, yearTo = 2029 },
-        category = "misc",
+        availability = {
+            yearFrom = 1990,
+            yearTo   = 9999,
+        },
+        buildMode  = "SINGLE",
+        category   = "misc",
+        cost       = { price = 25000 },
+        maintenance = { price = 200 },
         params = {
-        { 
-            key = "radius", name = _("Rayon (m)"), uiType = "SLIDER", values = { 400, 600, 800, 1000 }, defaultIndex = 1 },
+            {
+                key          = "radius",
+                name         = _("Rayon de couverture (m)"),
+                uiType       = "SLIDER",
+                values       = { 400, 600, 800, 1000 },
+                defaultIndex = 1,
+            },
         },
         updateFn = function(params)
-        local r = ({400,600,800,1000})[params.radius + 1]
-        return {
-        models = { { id = "telecom/tower.mdl", transf = transf.rotZYXTransl(0,0,0, 0,0,0) } },
-        metadata = { telecom = { kind = "MOBILE_1990", radius = r } }
-        }
-        end
+            local radii = { 400, 600, 800, 1000 }
+            local r     = radii[params.radius + 1] or 600
+            return {
+                models = {
+                    {
+                        id    = "telecom/tower.mdl",
+                        transf = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 },
+                    },
+                },
+                terrainAlignmentLists = { { type = "EXACT", faces = {} } },
+                metadata = {
+                    telecom = {
+                        kind   = "MOBILE",
+                        radius = r,
+                        epoch  = 1990,
+                    }
+                },
+            }
+        end,
     }
 end

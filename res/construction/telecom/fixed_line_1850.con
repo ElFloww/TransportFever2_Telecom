@@ -1,40 +1,49 @@
-local util = require "util"
-
+-- Nœud filaire 1850 — Téléphone fixe
+-- Augmente la croissance des villes dans son rayon via le game_script telecom_growth.
 
 function data()
     return {
         type = "ASSET_DEFAULT",
         description = {
-            name = _("Téléphone fixe (1850)"),
-            description = _("Nœud filaire de base. Augmente la croissance si les bâtiments sont raccordés."),
+            name        = _("Poteau téléphonique (1850)"),
+            description = _("Infrastructure filaire de base. Raccorde les habitants au réseau téléphonique et augmente la croissance de la ville."),
         },
         availability = {
-            yearFrom = 1850, yearTo = 9999,
+            yearFrom = 1850,
+            yearTo   = 9999,
         },
-        category = "misc",
+        buildMode  = "SINGLE",
+        category   = "misc",
+        cost       = { price = 5000 },
+        maintenance = { price = 50 },
         params = {
             {
-                key = "radius",
-                name = _("Rayon de service (m)"),
-                uiType = "SLIDER",
-                values = { 100, 200, 300, 400, 500 },
+                key          = "radius",
+                name         = _("Rayon de service (m)"),
+                uiType       = "SLIDER",
+                values       = { 100, 200, 300, 400, 500 },
                 defaultIndex = 2,
             },
         },
         updateFn = function(params)
-        local r = ({100,200,300,400,500})[params.radius + 1]
-        return {
-            models = {
-            {
-                id = "telecom/cabinet.mdl",
-                transf = transf.mulTransl(util.rotationYMatrix(0), {0,0,0}),
+            local radii = { 100, 200, 300, 400, 500 }
+            local r     = radii[params.radius + 1] or 300
+            return {
+                models = {
+                    {
+                        id    = "telecom/pole.mdl",
+                        transf = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 },
+                    },
+                },
+                terrainAlignmentLists = { { type = "EXACT", faces = {} } },
+                metadata = {
+                    telecom = {
+                        kind   = "WIRE",
+                        radius = r,
+                        epoch  = 1850,
+                    }
+                },
             }
-            },
-            terrainAlignmentLists = {},
-            metadata = {
-                telecom = { kind = "WIRE", radius = r }
-                }
-            }
-        end
+        end,
     }
 end

@@ -1,13 +1,49 @@
+-- Antenne 5G / réseau mobile moderne 2030
+-- Bonus mobile majeur : accès internet mobile très haut débit.
+
 function data()
-return {
-    type = "ASSET_DEFAULT",
-    description = { name = _("Antenne moderne (2030)"), description = _("Réseaux mobiles modernes pour accès Internet.") },
-    availability = { yearFrom = 2030, yearTo = 9999 },
-    category = "misc",
-    params = { { key = "radius", name = _("Rayon (m)"), uiType = "SLIDER", values = { 800, 1200, 1600, 2000 }, defaultIndex = 1 } },
-    updateFn = function(p)
-    local r = ({800,1200,1600,2000})[p.radius + 1]
-    return { models = { { id = "telecom/tower.mdl" } }, metadata = { telecom = { kind = "MOBILE_2030", radius = r } } }
-    end
-}
+    return {
+        type = "ASSET_DEFAULT",
+        description = {
+            name        = _("Antenne 5G (2030)"),
+            description = _("Réseau mobile de nouvelle génération (5G). Offre la plus grande portée et le bonus de croissance mobile le plus élevé. Complémentaire à la fibre optique."),
+        },
+        availability = {
+            yearFrom = 2030,
+            yearTo   = 9999,
+        },
+        buildMode  = "SINGLE",
+        category   = "misc",
+        cost       = { price = 60000 },
+        maintenance = { price = 400 },
+        params = {
+            {
+                key          = "radius",
+                name         = _("Rayon de couverture (m)"),
+                uiType       = "SLIDER",
+                values       = { 800, 1200, 1600, 2000 },
+                defaultIndex = 1,
+            },
+        },
+        updateFn = function(params)
+            local radii = { 800, 1200, 1600, 2000 }
+            local r     = radii[params.radius + 1] or 1200
+            return {
+                models = {
+                    {
+                        id    = "telecom/tower.mdl",
+                        transf = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 },
+                    },
+                },
+                terrainAlignmentLists = { { type = "EXACT", faces = {} } },
+                metadata = {
+                    telecom = {
+                        kind   = "MOBILE",
+                        radius = r,
+                        epoch  = 2030,
+                    }
+                },
+            }
+        end,
+    }
 end

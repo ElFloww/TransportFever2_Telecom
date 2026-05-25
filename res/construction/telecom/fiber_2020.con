@@ -1,13 +1,49 @@
+-- Nœud fibre optique 2020
+-- Bonus filaire majeur (+++) : améliore fortement la croissance urbaine.
+
 function data()
-return {
-    type = "ASSET_DEFAULT",
-    description = { name = _("Nœud fibre (2020)"), description = _("Améliore fortement la croissance des zones raccordées.") },
-    availability = { yearFrom = 2020, yearTo = 9999 },
-    category = "misc",
-    params = { { key = "radius", name = _("Rayon (m)"), uiType = "SLIDER", values = { 300, 450, 600, 900, 1200 }, defaultIndex = 2 } },
-    updateFn = function(p)
-        local r = ({300,450,600,900,1200})[p.radius + 1]
-        return { models = { { id = "telecom/cabinet.mdl" } }, metadata = { telecom = { kind = "FIBER_2020", radius = r } } }
-    end
-}
+    return {
+        type = "ASSET_DEFAULT",
+        description = {
+            name        = _("Nœud fibre optique (2020)"),
+            description = _("Infrastructure fibre optique à très haut débit. Améliore fortement la croissance des zones raccordées. Remplace avantageusement le réseau filaire 1850."),
+        },
+        availability = {
+            yearFrom = 2020,
+            yearTo   = 9999,
+        },
+        buildMode  = "SINGLE",
+        category   = "misc",
+        cost       = { price = 40000 },
+        maintenance = { price = 300 },
+        params = {
+            {
+                key          = "radius",
+                name         = _("Rayon de service (m)"),
+                uiType       = "SLIDER",
+                values       = { 300, 450, 600, 900, 1200 },
+                defaultIndex = 2,
+            },
+        },
+        updateFn = function(params)
+            local radii = { 300, 450, 600, 900, 1200 }
+            local r     = radii[params.radius + 1] or 600
+            return {
+                models = {
+                    {
+                        id    = "telecom/cabinet.mdl",
+                        transf = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 },
+                    },
+                },
+                terrainAlignmentLists = { { type = "EXACT", faces = {} } },
+                metadata = {
+                    telecom = {
+                        kind   = "WIRE",
+                        radius = r,
+                        epoch  = 2020,
+                    }
+                },
+            }
+        end,
+    }
 end
