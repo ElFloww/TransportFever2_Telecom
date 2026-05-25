@@ -409,40 +409,46 @@ function data()
         -- INTERFACE UTILISATEUR (UI Thread)
         -- =============================================================================
         guiInit = function()
-            if not api.gui or not api.gui.comp or not api.gui.comp.Window then return end
+            -- Sécurité : on utilise pcall pour éviter un crash complet du jeu
+            -- si une méthode de l'API UI n'est pas supportée par cette version de TF2.
+            pcall(function()
+                if not api.gui or not api.gui.comp or not api.gui.comp.Window then return end
 
-            local window = api.gui.comp.Window.new("Réseaux Télécom - Statut", nil)
-            window:setId("telecom_status_window")
-            
-            local layout = api.gui.comp.BoxLayout.new("VERTICAL")
-            local textView = api.gui.comp.TextView.new("Initialisation...\nPlacez des infrastructures télécom pour booster vos villes.")
-            textView:setId("telecom_status_text")
-            layout:addItem(textView)
-            
-            window:setContent(layout)
-            window:setResizable(true)
-            window:setMovable(true)
-            window:addHideOnCloseHandler()
-            
-            -- Dimensions et position par défaut
-            window:setSize(api.gui.util.Size.new(380, 120))
-            window:setPosition(100, 200)
-            window:setVisible(true)
-
-            _telecom_gui_tick = 0
+                local window = api.gui.comp.Window.new("Réseaux Télécom - Statut", nil)
+                if not window then return end
+                window:setId("telecom_status_window")
+                
+                -- L'API correcte pour les layouts est api.gui.layout (et non api.gui.comp)
+                local layout = api.gui.layout.BoxLayout.new("VERTICAL")
+                local textView = api.gui.comp.TextView.new("Initialisation...\nPlacez des infrastructures télécom pour booster vos villes.")
+                textView:setId("telecom_status_text")
+                layout:addItem(textView)
+                
+                window:setContent(layout)
+                
+                -- Vérification des méthodes avant appel (selon version TF2)
+                if window.setResizable then window:setResizable(true) end
+                if window.setMovable then window:setMovable(true) end
+                if window.addHideOnCloseHandler then window:addHideOnCloseHandler() end
+                
+                if api.gui.util and api.gui.util.Size then
+                    window:setSize(api.gui.util.Size.new(380, 120))
+                end
+                
+                window:setVisible(true)
+                _telecom_gui_tick = 0
+            end)
         end,
 
         guiUpdate = function()
-            -- Mise à jour toutes les 60 frames environ pour ne pas surcharger l'UI
-            _telecom_gui_tick = (_telecom_gui_tick or 0) + 1
-            if _telecom_gui_tick % 60 ~= 0 then return end
-
-            if not api.gui or not api.gui.util then return end
-            local textView = api.gui.util.getById("telecom_status_text")
-            if not textView then return end
-
-            -- Lecture directe depuis le moteur (read-only autorisé dans l'UI thread)
             pcall(function()
+                _telecom_gui_tick = (_telecom_gui_tick or 0) + 1
+                if _telecom_gui_tick % 60 ~= 0 then return end
+
+                if not api.gui or not api.gui.util then return end
+                local textView = api.gui.util.getById("telecom_status_text")
+                if not textView then return end
+
                 local townCount = 0
                 local nodeCount = 0
                 local entities = api.engine.getEntities() or {}
@@ -452,7 +458,7 @@ function data()
                     if tComp then townCount = townCount + 1 end
                     
                     local cComp = api.engine.getComponent(id, api.type.ComponentType.CONSTRUCTION)
-                    if cComp and string.find(cComp.fileName, "telecom") then
+                    if cComp and cComp.fileName and string.find(cComp.fileName, "telecom") then
                         nodeCount = nodeCount + 1
                     end
                 end
@@ -462,18 +468,16 @@ function data()
                     interval = game.config.townDevelopInterval
                 end
 
-                -- Calcul du bonus estimé à partir de l'intervalle actuel (défaut=60)
-                -- bonus = MAX_BONUS * (1 - interval/60)
                 local bonusPct = 0
                 if interval < 60 then
                     bonusPct = 60.0 * (1.0 - (interval / 60.0))
                 end
 
                 local text = string.format(
-                    "▶ Infrastructures télécom actives : %d\n" ..
+                    "▶ Infrastructures actives : %d\n" ..
                     "▶ Villes sur la carte : %d\n\n" ..
-                    "📈 Bonus global de croissance estimé : +%.1f%%\n" ..
-                    "⏱️ Rythme de développement actuel : %d ticks",
+                    "📈 Bonus de croissance estimé : +%.1f%%\n" ..
+                    "⏱️ Rythme de développement : %d ticks",
                     nodeCount, townCount, bonusPct, interval
                 )
                 textView:setText(text)
