@@ -21,7 +21,7 @@ function data()
                 key          = "radius",
                 name         = _("Rayon de couverture (m)"),
                 uiType       = "SLIDER",
-                values       = { 400, 600, 800, 1000 },
+                values       = { "400", "600", "800", "1000" },
                 defaultIndex = 1,
             },
         },

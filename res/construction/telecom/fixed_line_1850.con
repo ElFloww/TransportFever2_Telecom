@@ -21,12 +21,12 @@ function data()
                 key          = "radius",
                 name         = _("Rayon de service (m)"),
                 uiType       = "SLIDER",
-                values       = { 100, 200, 300, 400, 500 },
+                values       = { "100", "200", "300", "400", "500" },
                 defaultIndex = 2,
             },
         },
         updateFn = function(params)
-            local radii = { 100, 200, 300, 400, 500 }
+            local radii = { 100, 200, 300, 400, 500 }  -- valeurs internes (nombres)
             local r     = radii[params.radius + 1] or 300
             return {
                 models = {

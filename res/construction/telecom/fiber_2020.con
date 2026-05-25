@@ -21,7 +21,7 @@ function data()
                 key          = "radius",
                 name         = _("Rayon de service (m)"),
                 uiType       = "SLIDER",
-                values       = { 300, 450, 600, 900, 1200 },
+                values       = { "300", "450", "600", "900", "1200" },
                 defaultIndex = 2,
             },
         },
