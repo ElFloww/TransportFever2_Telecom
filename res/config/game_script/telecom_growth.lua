@@ -262,15 +262,20 @@ end
 -- =============================================================================
 function data()
     return {
-        -- Initialise l'état persistant de la sauvegarde
-        init = function(state)
-            state.tick      = 0
-            state.nodes     = {}
-            state.coverage  = {}
-            state.lastBonus = 0
+        -- init() : appelé sans argument au démarrage d'une nouvelle partie.
+        -- Doit RETOURNER la table d'état initiale.
+        init = function()
+            return {
+                tick      = 0,
+                nodes     = {},
+                coverage  = {},
+                lastBonus = 0,
+                townCount = 0,
+                nodeCount = 0,
+            }
         end,
 
-        -- Appelé à chaque tick de simulation
+        -- update(state) : appelé à chaque tick de simulation avec l'état courant.
         update = function(state)
             state.tick = (state.tick or 0) + 1
 

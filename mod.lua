@@ -24,24 +24,10 @@ Placez les nœuds depuis l'onglet Construction → Divers.]]),
             tfnetId       = "com.elfloww.telecom_networks",
         },
 
-        -- runFn : appelé au démarrage de la partie, avant le chargement des entités.
-        -- On configure ici les paramètres globaux du jeu.
+        -- runFn : appelé au démarrage de la partie.
+        -- Les game_scripts dans res/config/game_script/ sont automatiquement
+        -- chargés par TF2 — pas besoin d'enregistrement manuel.
         runFn = function(settings)
-            -- Enregistrement du game_script qui gère le bonus de croissance.
-            -- Le moteur TF2 va automatiquement charger telecom_growth.lua
-            -- depuis res/config/game_script/ grâce à ce chemin.
-            if api and api.res and api.res.gameScriptRep then
-                api.res.gameScriptRep.add("res/config/game_script/telecom_growth.lua")
-            end
-
-            -- Valeur de base du facteur de croissance (sera ajustée dynamiquement
-            -- par telecom_growth.lua selon la couverture télécom).
-            -- Ne pas mettre ici de valeur > 1.0 : c'est le game_script qui gère le bonus.
-            if game and game.config then
-                -- S'assurer que l'intervalle de développement est raisonnable
-                -- (valeur par défaut TF2 = 30, on laisse le défaut)
-                -- game.config.townDevelopInterval = 30
-            end
         end,
 
         -- postRunFn : appelé après chargement de tous les mods.
