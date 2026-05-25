@@ -245,15 +245,75 @@ local function computeGlobalBonus(coverage, totalTowns)
 end
 
 -- =============================================================================
--- APPLICATION DU BONUS
--- Modifie game.config.townGrowthFactor (valeur lue par le moteur de croissance)
+-- DIAGNOSTIC : affiche les clés game.config disponibles (1 seule fois au démarrage)
 -- =============================================================================
-local function applyBonus(bonus)
-    local newFactor = BASE_GROWTH + bonus
-    -- Sécurité : ne jamais descendre en-dessous de 1.0 ni dépasser 1.0 + MAX_BONUS
-    newFactor = math.max(BASE_GROWTH, math.min(BASE_GROWTH + MAX_BONUS, newFactor))
+local _diagDone = false
+local function runDiagnostic()
+    if _diagDone then return end
+    _diagDone = true
+    print("[Telecom] === DIAGNOSTIC game.config ===")
     if game and game.config then
-        game.config.townGrowthFactor = newFactor
+        local found = {}
+        for k, v in pairs(game.config) do
+            if type(v) == "number" or type(v) == "boolean" then
+                table.insert(found, k .. " = " .. tostring(v))
+            end
+        end
+        table.sort(found)
+        for _, line in ipairs(found) do print("[Telecom]  " .. line) end
+        if #found == 0 then print("[Telecom]  (aucune clé numérique trouvée)") end
+    else
+        print("[Telecom]  game.config introuvable")
+    end
+    print("[Telecom] api.engine disponible : " .. tostring(api ~= nil and api.engine ~= nil))
+    print("[Telecom] =====================================")
+end
+
+-- =============================================================================
+-- APPLICATION DU BONUS — stratégies en cascade
+-- =============================================================================
+local _appliedStrategy = nil  -- mémorise quelle stratégie fonctionne
+
+local function applyBonus(bonus)
+    if not game or not game.config then return end
+
+    -- Stratégie 1 : townGrowthFactor (TF1 / certaines versions TF2)
+    if game.config.townGrowthFactor ~= nil then
+        local newFactor = 1.0 + bonus
+        game.config.townGrowthFactor = math.max(1.0, math.min(1.6, newFactor))
+        if _appliedStrategy ~= 1 then
+            _appliedStrategy = 1
+            print("[Telecom] Stratégie : townGrowthFactor = " .. tostring(game.config.townGrowthFactor))
+        end
+        return
+    end
+
+    -- Stratégie 2 : townDevelopInterval (confirmé = 60 dans TF2)
+    -- Réduire l'intervalle = villes se développent plus souvent = croissance accélérée
+    -- Valeur par défaut TF2 = 60.
+    -- bonus  0% → interval 60 (rythme normal)
+    -- bonus 30% → interval 40
+    -- bonus 60% → interval 20 (3× plus rapide)
+    if game.config.townDevelopInterval ~= nil then
+        local DEFAULT_INTERVAL = 60
+        local MIN_INTERVAL     = 20
+        local newInterval = math.floor(DEFAULT_INTERVAL - (DEFAULT_INTERVAL - MIN_INTERVAL) * bonus / MAX_BONUS)
+        newInterval = math.max(MIN_INTERVAL, math.min(DEFAULT_INTERVAL, newInterval))
+        game.config.townDevelopInterval = newInterval
+        if _appliedStrategy ~= 2 then
+            _appliedStrategy = 2
+            print("[Telecom] Stratégie : townDevelopInterval = " .. tostring(newInterval)
+                  .. " (défaut=60, bonus=" .. string.format("%.0f%%", bonus * 100) .. ")")
+        end
+        return
+    end
+
+    -- Stratégie 3 : aucune clé connue trouvée — log une seule fois
+    if _appliedStrategy ~= 3 then
+        _appliedStrategy = 3
+        print("[Telecom] AVERTISSEMENT : aucune clé de croissance trouvée dans game.config")
+        print("[Telecom] Le bonus de " .. string.format("%.0f%%", bonus * 100) .. " ne peut pas être appliqué")
+        print("[Telecom] Tapez : for k,v in pairs(game.config) do print(k,v) end")
     end
 end
 
@@ -282,6 +342,9 @@ function data()
             if not state then
                 state = { tick = 0, nodes = {}, coverage = {}, lastBonus = 0, townCount = 0, nodeCount = 0 }
             end
+
+            -- Diagnostic au premier tick : affiche les clés game.config disponibles
+            runDiagnostic()
 
             state.tick = (state.tick or 0) + 1
 
@@ -340,6 +403,81 @@ function data()
                 nodes     = {},
                 coverage  = {},
             }
+        end,
+
+        -- =============================================================================
+        -- INTERFACE UTILISATEUR (UI Thread)
+        -- =============================================================================
+        guiInit = function()
+            if not api.gui or not api.gui.comp or not api.gui.comp.Window then return end
+
+            local window = api.gui.comp.Window.new("Réseaux Télécom - Statut", nil)
+            window:setId("telecom_status_window")
+            
+            local layout = api.gui.comp.BoxLayout.new("VERTICAL")
+            local textView = api.gui.comp.TextView.new("Initialisation...\nPlacez des infrastructures télécom pour booster vos villes.")
+            textView:setId("telecom_status_text")
+            layout:addItem(textView)
+            
+            window:setContent(layout)
+            window:setResizable(true)
+            window:setMovable(true)
+            window:addHideOnCloseHandler()
+            
+            -- Dimensions et position par défaut
+            window:setSize(api.gui.util.Size.new(380, 120))
+            window:setPosition(100, 200)
+            window:setVisible(true)
+
+            _telecom_gui_tick = 0
+        end,
+
+        guiUpdate = function()
+            -- Mise à jour toutes les 60 frames environ pour ne pas surcharger l'UI
+            _telecom_gui_tick = (_telecom_gui_tick or 0) + 1
+            if _telecom_gui_tick % 60 ~= 0 then return end
+
+            if not api.gui or not api.gui.util then return end
+            local textView = api.gui.util.getById("telecom_status_text")
+            if not textView then return end
+
+            -- Lecture directe depuis le moteur (read-only autorisé dans l'UI thread)
+            pcall(function()
+                local townCount = 0
+                local nodeCount = 0
+                local entities = api.engine.getEntities() or {}
+                
+                for _, id in ipairs(entities) do
+                    local tComp = api.engine.getComponent(id, api.type.ComponentType.TOWN)
+                    if tComp then townCount = townCount + 1 end
+                    
+                    local cComp = api.engine.getComponent(id, api.type.ComponentType.CONSTRUCTION)
+                    if cComp and string.find(cComp.fileName, "telecom") then
+                        nodeCount = nodeCount + 1
+                    end
+                end
+
+                local interval = 60
+                if game and game.config and game.config.townDevelopInterval then
+                    interval = game.config.townDevelopInterval
+                end
+
+                -- Calcul du bonus estimé à partir de l'intervalle actuel (défaut=60)
+                -- bonus = MAX_BONUS * (1 - interval/60)
+                local bonusPct = 0
+                if interval < 60 then
+                    bonusPct = 60.0 * (1.0 - (interval / 60.0))
+                end
+
+                local text = string.format(
+                    "▶ Infrastructures télécom actives : %d\n" ..
+                    "▶ Villes sur la carte : %d\n\n" ..
+                    "📈 Bonus global de croissance estimé : +%.1f%%\n" ..
+                    "⏱️ Rythme de développement actuel : %d ticks",
+                    nodeCount, townCount, bonusPct, interval
+                )
+                textView:setText(text)
+            end)
         end,
     }
 end
