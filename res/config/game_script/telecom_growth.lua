@@ -10,7 +10,11 @@
 --     2. Scanne toutes les villes pour obtenir leur position
 --     3. Calcule la couverture de chaque ville (WIRE et MOBILE séparément)
 --     4. Détermine le bonus global de croissance à appliquer
---     5. Modifie game.config.townGrowthFactor dynamiquement
+--     5. Modifie game.config.townDevelopInterval dynamiquement
+--
+--   La partie UI (guiInit / guiUpdate) tourne sur le thread UI séparé.
+--   Elle utilise api.gui pour afficher une fenêtre de statut avec un bouton
+--   toggle dans la barre du jeu.
 --
 -- BONUS PAR ÉPOQUE (cumulatif, plafonné à MAX_BONUS) :
 --   WIRE  1850 : +5%  par ville couverte
@@ -21,17 +25,17 @@
 -- =============================================================================
 
 local TICK_INTERVAL = 60   -- secondes de jeu entre deux recalculs
-local BASE_GROWTH   = 1.0  -- valeur par défaut de townGrowthFactor
-local MAX_BONUS     = 0.60 -- bonus maximal cumulable (+60% au-dessus du défaut)
+local BASE_GROWTH   = 1.0  -- valeur par défaut
+local MAX_BONUS     = 0.60 -- bonus maximal cumulable (+60%)
 
 -- Bonus de base par type et époque (la meilleure époque disponible est retenue)
 local WIRE_BONUS = {
     [1850] = 0.05,
-    [2020] = 0.20,  -- remplace 1850 si disponible dans la partie
+    [2020] = 0.20,
 }
 local MOBILE_BONUS = {
     [1990] = 0.10,
-    [2030] = 0.15,  -- remplace 1990 si disponible dans la partie
+    [2030] = 0.15,
 }
 
 -- Multiplicateur si une ville a à la fois couverture WIRE et MOBILE
@@ -44,35 +48,29 @@ local SYNERGY_MULT = 1.2
 --- Distance euclidienne 2D entre deux positions (ignore Z)
 local function dist2D(a, b)
     if not a or not b then return math.huge end
-    local dx = (a[13] or a.x or 0) - (b[13] or b.x or 0)
-    local dy = (a[14] or a.y or 0) - (b[14] or b.y or 0)
+    local dx = (a.x or 0) - (b.x or 0)
+    local dy = (a.y or 0) - (b.y or 0)
     return math.sqrt(dx * dx + dy * dy)
 end
 
---- Extrait la position XY depuis une matrice de transformation 4x4 (table de 16 valeurs)
-local function posFromTransf(t)
-    if not t then return nil end
-    -- La matrice TF2 est column-major : [1..4]=col0, [5..8]=col1, [9..12]=col2, [13..16]=col3
-    -- col3 = translation : indices 13, 14, 15
+--- Extrait la position XY depuis un composant TRANSFORM
+local function posFromTransf(tf)
+    if not tf or not tf.transf then return nil end
+    local t = tf.transf
+    -- La matrice TF2 est column-major : indices 13, 14, 15 = translation X, Y, Z
     return { x = t[13] or 0, y = t[14] or 0, z = t[15] or 0 }
 end
 
 -- =============================================================================
 -- COLLECTE DES NOEUDS TELECOM
--- Cherche toutes les constructions ayant metadata.telecom dans leurs paramètres.
 -- =============================================================================
 local function collectTelecomNodes()
     local nodes = {}
-    -- Itérer sur toutes les entités du monde
-    local entityCount = 0
-    -- api.engine.getEntitiesOfType n'existant pas toujours,
-    -- on utilise la méthode universelle avec forEachEntity si disponible,
-    -- sinon on itère sur une plage d'IDs (fallback).
+
     local ok, entities = pcall(function()
         return api.engine.getEntitiesOfType(api.type.EntityType.CONSTRUCTION)
     end)
     if not ok or not entities then
-        -- Fallback : getEntities() sans filtre
         ok, entities = pcall(function()
             return api.engine.getEntities()
         end)
@@ -80,11 +78,10 @@ local function collectTelecomNodes()
     if not ok or not entities then return nodes end
 
     for _, id in ipairs(entities) do
-        local con = api.engine.getComponent(id, api.type.ComponentType.CONSTRUCTION)
-        if con then
-            -- La metadata télécom est stockée dans con.params (sérialisé par le jeu)
-            -- ou accessible via les paramètres de construction
-            -- On cherche dans con.fileName pour identifier nos fichiers .con
+        local success, con = pcall(function()
+            return api.engine.getComponent(id, api.type.ComponentType.CONSTRUCTION)
+        end)
+        if success and con then
             local fileName = con.fileName or ""
             local kind, radius, epoch
 
@@ -103,13 +100,11 @@ local function collectTelecomNodes()
             end
 
             if kind then
-                -- Récupérer la position
-                local tf = api.engine.getComponent(id, api.type.ComponentType.TRANSFORM)
-                local pos = tf and posFromTransf(tf.transf) or nil
+                local tf  = api.engine.getComponent(id, api.type.ComponentType.TRANSFORM)
+                local pos = posFromTransf(tf)
 
                 -- Récupérer le rayon depuis les params de construction
-                -- con.params[1] correspond au premier param (index 0-based interne → +1 en Lua)
-                local r = 300 -- défaut
+                local r = 300
                 if con.params and con.params[1] then
                     local pIdx = (con.params[1] or 0)
                     if kind == "WIRE" and epoch == 1850 then
@@ -128,13 +123,12 @@ local function collectTelecomNodes()
                 end
 
                 table.insert(nodes, {
-                    id    = id,
-                    kind  = kind,
-                    epoch = epoch,
+                    id     = id,
+                    kind   = kind,
+                    epoch  = epoch,
                     radius = r,
-                    pos   = pos,
+                    pos    = pos,
                 })
-                entityCount = entityCount + 1
             end
         end
     end
@@ -150,7 +144,6 @@ local function collectTowns()
         return api.engine.getEntitiesOfType(api.type.EntityType.TOWN)
     end)
     if not ok or not townIds then
-        -- Fallback via game.interface si disponible
         ok, townIds = pcall(function()
             return game.interface.getTowns()
         end)
@@ -159,9 +152,19 @@ local function collectTowns()
 
     for _, id in ipairs(townIds) do
         local tf  = api.engine.getComponent(id, api.type.ComponentType.TRANSFORM)
-        local pos = tf and posFromTransf(tf.transf) or nil
+        local pos = posFromTransf(tf)
+
+        -- Essayer de récupérer le nom de la ville
+        local townName = ""
+        pcall(function()
+            local nameComp = api.engine.getComponent(id, api.type.ComponentType.NAME)
+            if nameComp and nameComp.name then
+                townName = nameComp.name
+            end
+        end)
+
         if pos then
-            table.insert(towns, { id = id, pos = pos })
+            table.insert(towns, { id = id, pos = pos, name = townName })
         end
     end
     return towns
@@ -169,13 +172,15 @@ end
 
 -- =============================================================================
 -- CALCUL DE COUVERTURE
--- Retourne pour chaque ville son meilleur epoch WIRE et son meilleur epoch MOBILE
 -- =============================================================================
 local function computeCoverage(nodes, towns)
-    -- coverage[townId] = { wireEpoch = nil|1850|2020, mobileEpoch = nil|1990|2030 }
     local coverage = {}
     for _, town in ipairs(towns) do
-        coverage[town.id] = { wireEpoch = nil, mobileEpoch = nil }
+        coverage[town.id] = {
+            wireEpoch   = nil,
+            mobileEpoch = nil,
+            townName    = town.name or "",
+        }
     end
 
     for _, node in ipairs(nodes) do
@@ -184,7 +189,6 @@ local function computeCoverage(nodes, towns)
                 if dist2D(node.pos, town.pos) <= node.radius then
                     local c = coverage[town.id]
                     if node.kind == "WIRE" then
-                        -- Garder l'époque la plus récente (meilleur bonus)
                         if not c.wireEpoch or node.epoch > c.wireEpoch then
                             c.wireEpoch = node.epoch
                         end
@@ -202,7 +206,6 @@ end
 
 -- =============================================================================
 -- CALCUL DU BONUS GLOBAL
--- Moyenne pondérée du bonus sur toutes les villes
 -- =============================================================================
 local function computeGlobalBonus(coverage, totalTowns)
     if totalTowns == 0 then return 0 end
@@ -223,97 +226,60 @@ local function computeGlobalBonus(coverage, totalTowns)
 
         if wireB > 0 or mobileB > 0 then
             local bonus = wireB + mobileB
-            -- Synergie : bonus supplémentaire si les deux types sont couverts
             if wireB > 0 and mobileB > 0 then
                 bonus = bonus * SYNERGY_MULT
             end
-            totalBonus  = totalBonus + bonus
+            totalBonus   = totalBonus + bonus
             coveredTowns = coveredTowns + 1
         end
     end
 
-    -- Le bonus global = moyenne sur les villes couvertes × ratio de couverture
-    -- (plus on couvre de villes, plus l'effet est fort)
     if coveredTowns == 0 then return 0 end
 
     local avgBonus    = totalBonus / coveredTowns
     local coverRatio  = coveredTowns / totalTowns
     local globalBonus = avgBonus * coverRatio
 
-    -- Plafonner au maximum configuré
     return math.min(globalBonus, MAX_BONUS)
 end
 
 -- =============================================================================
--- DIAGNOSTIC : affiche les clés game.config disponibles (1 seule fois au démarrage)
+-- DIAGNOSTIC (1 seule fois au premier tick)
 -- =============================================================================
 local _diagDone = false
 local function runDiagnostic()
     if _diagDone then return end
     _diagDone = true
-    print("[Telecom] === DIAGNOSTIC game.config ===")
+    print("[Telecom] === MOD TELECOM ACTIF ===")
+    print("[Telecom] Version 2.0 — groundFaces + UI Window")
     if game and game.config then
-        local found = {}
-        for k, v in pairs(game.config) do
-            if type(v) == "number" or type(v) == "boolean" then
-                table.insert(found, k .. " = " .. tostring(v))
-            end
-        end
-        table.sort(found)
-        for _, line in ipairs(found) do print("[Telecom]  " .. line) end
-        if #found == 0 then print("[Telecom]  (aucune clé numérique trouvée)") end
-    else
-        print("[Telecom]  game.config introuvable")
+        local interval = game.config.townDevelopInterval
+        print("[Telecom] townDevelopInterval = " .. tostring(interval))
     end
-    print("[Telecom] api.engine disponible : " .. tostring(api ~= nil and api.engine ~= nil))
-    print("[Telecom] =====================================")
+    print("[Telecom] =========================")
 end
 
 -- =============================================================================
--- APPLICATION DU BONUS — stratégies en cascade
+-- APPLICATION DU BONUS
 -- =============================================================================
-local _appliedStrategy = nil  -- mémorise quelle stratégie fonctionne
+local _lastLoggedBonus = -1
 
 local function applyBonus(bonus)
     if not game or not game.config then return end
 
-    -- Stratégie 1 : townGrowthFactor (TF1 / certaines versions TF2)
-    if game.config.townGrowthFactor ~= nil then
-        local newFactor = 1.0 + bonus
-        game.config.townGrowthFactor = math.max(1.0, math.min(1.6, newFactor))
-        if _appliedStrategy ~= 1 then
-            _appliedStrategy = 1
-            print("[Telecom] Stratégie : townGrowthFactor = " .. tostring(game.config.townGrowthFactor))
-        end
-        return
-    end
-
-    -- Stratégie 2 : townDevelopInterval (confirmé = 60 dans TF2)
-    -- Réduire l'intervalle = villes se développent plus souvent = croissance accélérée
-    -- Valeur par défaut TF2 = 60.
-    -- bonus  0% → interval 60 (rythme normal)
-    -- bonus 30% → interval 40
-    -- bonus 60% → interval 20 (3× plus rapide)
     if game.config.townDevelopInterval ~= nil then
         local DEFAULT_INTERVAL = 60
         local MIN_INTERVAL     = 20
         local newInterval = math.floor(DEFAULT_INTERVAL - (DEFAULT_INTERVAL - MIN_INTERVAL) * bonus / MAX_BONUS)
         newInterval = math.max(MIN_INTERVAL, math.min(DEFAULT_INTERVAL, newInterval))
         game.config.townDevelopInterval = newInterval
-        if _appliedStrategy ~= 2 then
-            _appliedStrategy = 2
-            print("[Telecom] Stratégie : townDevelopInterval = " .. tostring(newInterval)
-                  .. " (défaut=60, bonus=" .. string.format("%.0f%%", bonus * 100) .. ")")
-        end
-        return
-    end
 
-    -- Stratégie 3 : aucune clé connue trouvée — log une seule fois
-    if _appliedStrategy ~= 3 then
-        _appliedStrategy = 3
-        print("[Telecom] AVERTISSEMENT : aucune clé de croissance trouvée dans game.config")
-        print("[Telecom] Le bonus de " .. string.format("%.0f%%", bonus * 100) .. " ne peut pas être appliqué")
-        print("[Telecom] Tapez : for k,v in pairs(game.config) do print(k,v) end")
+        -- Log uniquement si le bonus change significativement
+        local bonusPct = math.floor(bonus * 100)
+        if bonusPct ~= _lastLoggedBonus then
+            _lastLoggedBonus = bonusPct
+            print("[Telecom] Bonus: +" .. bonusPct .. "% → townDevelopInterval = " .. newInterval)
+        end
     end
 end
 
@@ -322,8 +288,10 @@ end
 -- =============================================================================
 function data()
     return {
-        -- init() : appelé sans argument au démarrage d'une nouvelle partie.
-        -- Doit RETOURNER la table d'état initiale.
+        -- =====================================================================
+        -- ENGINE THREAD : init / update / save / load
+        -- =====================================================================
+
         init = function()
             return {
                 tick      = 0,
@@ -335,50 +303,32 @@ function data()
             }
         end,
 
-        -- update(state) : appelé à chaque tick de simulation avec l'état courant.
-        -- DOIT retourner state pour que le moteur le conserve entre les ticks.
         update = function(state)
-            -- Sécurité : si state est nil (ne devrait pas arriver), on le recrée
             if not state then
                 state = { tick = 0, nodes = {}, coverage = {}, lastBonus = 0, townCount = 0, nodeCount = 0 }
             end
 
-            -- Diagnostic au premier tick : affiche les clés game.config disponibles
             runDiagnostic()
 
             state.tick = (state.tick or 0) + 1
-
-            -- Ne recalculer que toutes les TICK_INTERVAL secondes
             if state.tick % TICK_INTERVAL ~= 0 then return state end
 
-            -- 1. Collecter les nœuds télécoms actifs
-            local nodes = collectTelecomNodes()
-
-            -- 2. Collecter les villes
-            local towns = collectTowns()
-
-            -- 3. Calculer la couverture
+            local nodes    = collectTelecomNodes()
+            local towns    = collectTowns()
             local coverage = computeCoverage(nodes, towns)
+            local bonus    = computeGlobalBonus(coverage, #towns)
 
-            -- 4. Calculer le bonus global
-            local bonus = computeGlobalBonus(coverage, #towns)
-
-            -- 5. Appliquer le bonus
             applyBonus(bonus)
 
-            -- 6. Mettre à jour l'état
             state.nodes     = nodes
             state.coverage  = coverage
             state.lastBonus = bonus
             state.townCount = #towns
             state.nodeCount = #nodes
 
-            -- IMPORTANT : retourner state pour que TF2 le conserve
             return state
         end,
 
-        -- save(state) : sérialisation pour la sauvegarde de partie.
-        -- Appelé avec state pouvant être nil si update n'a pas encore tourné.
         save = function(state)
             if not state then
                 return { tick = 0, lastBonus = 0, townCount = 0, nodeCount = 0 }
@@ -388,12 +338,9 @@ function data()
                 lastBonus = state.lastBonus or 0,
                 townCount = state.townCount or 0,
                 nodeCount = state.nodeCount or 0,
-                -- nodes et coverage sont reconstruits au prochain update
             }
         end,
 
-        -- load(saved) : restauration depuis une sauvegarde.
-        -- Doit retourner l'état complet reconstruit.
         load = function(saved)
             return {
                 tick      = saved and saved.tick      or 0,
@@ -405,82 +352,191 @@ function data()
             }
         end,
 
-        -- =============================================================================
-        -- INTERFACE UTILISATEUR (UI Thread)
-        -- =============================================================================
-        guiInit = function()
-            -- Sécurité : on utilise pcall pour éviter un crash complet du jeu
-            -- si une méthode de l'API UI n'est pas supportée par cette version de TF2.
-            pcall(function()
-                if not api.gui or not api.gui.comp or not api.gui.comp.Window then return end
+        -- =====================================================================
+        -- UI THREAD : guiInit / guiUpdate
+        -- =====================================================================
 
-                local window = api.gui.comp.Window.new("Réseaux Télécom - Statut", nil)
-                if not window then return end
-                window:setId("telecom_status_window")
-                
-                -- L'API correcte pour les layouts est api.gui.layout (et non api.gui.comp)
+        guiInit = function()
+            -- Tout dans un pcall pour ne jamais crasher le jeu
+            pcall(function()
+                -- Vérifier que l'API GUI est disponible
+                if not api or not api.gui or not api.gui.comp then return end
+                if not api.gui.comp.Window then return end
+                if not api.gui.layout then return end
+
+                -- Créer le contenu de la fenêtre
                 local layout = api.gui.layout.BoxLayout.new("VERTICAL")
-                local textView = api.gui.comp.TextView.new("Initialisation...\nPlacez des infrastructures télécom pour booster vos villes.")
-                textView:setId("telecom_status_text")
-                layout:addItem(textView)
-                
-                window:setContent(layout)
-                
-                -- Vérification des méthodes avant appel (selon version TF2)
-                if window.setResizable then window:setResizable(true) end
-                if window.setMovable then window:setMovable(true) end
-                if window.addHideOnCloseHandler then window:addHideOnCloseHandler() end
-                
-                if api.gui.util and api.gui.util.Size then
-                    window:setSize(api.gui.util.Size.new(380, 120))
+
+                local headerText = api.gui.comp.TextView.new("Réseaux de Communication")
+                headerText:setId("telecom_header")
+                layout:addItem(headerText)
+
+                local statusText = api.gui.comp.TextView.new(
+                    "Placez des infrastructures télécom\n" ..
+                    "autour de vos villes pour booster\n" ..
+                    "leur croissance.\n\n" ..
+                    "Chargement des données..."
+                )
+                statusText:setId("telecom_status_text")
+                layout:addItem(statusText)
+
+                -- Créer la fenêtre (2 arguments : titre, layout)
+                local window = api.gui.comp.Window.new("Telecom", layout)
+                window:setId("telecom_status_window")
+
+                -- Configurer la fenêtre
+                if window.addHideOnCloseHandler then
+                    window:addHideOnCloseHandler()
                 end
-                
-                window:setVisible(true)
+                if api.gui.util and api.gui.util.Size then
+                    window:setSize(api.gui.util.Size.new(350, 250))
+                end
+                if window.setPosition then
+                    window:setPosition(100, 200)
+                end
+
+                -- Caché par défaut
+                window:setVisible(false, false)
+
+                -- Bouton toggle dans la barre du jeu
+                local btnLabel = api.gui.comp.TextView.new("Telecom")
+                local toggleBtn = api.gui.comp.Button.new(btnLabel, true)
+                toggleBtn:setId("telecom_toggle_btn")
+
+                toggleBtn:onClick(function()
+                    pcall(function()
+                        local w = api.gui.util.getById("telecom_status_window")
+                        if w then
+                            local vis = w:isVisible()
+                            w:setVisible(not vis, false)
+                        end
+                    end)
+                end)
+
+                -- Essayer d'injecter le bouton dans la barre du jeu
+                pcall(function()
+                    local gameInfo = api.gui.util.getById("gameInfo")
+                    if gameInfo and gameInfo.getLayout then
+                        gameInfo:getLayout():addItem(toggleBtn)
+                    end
+                end)
+
+                -- Variable globale pour le compteur de frames UI
                 _telecom_gui_tick = 0
+                print("[Telecom] UI initialisée avec succès")
             end)
         end,
 
         guiUpdate = function()
             pcall(function()
                 _telecom_gui_tick = (_telecom_gui_tick or 0) + 1
-                if _telecom_gui_tick % 60 ~= 0 then return end
+                -- Mise à jour toutes les ~120 frames pour ne pas surcharger l'UI
+                if _telecom_gui_tick % 120 ~= 0 then return end
 
-                if not api.gui or not api.gui.util then return end
-                local textView = api.gui.util.getById("telecom_status_text")
-                if not textView then return end
+                -- Vérifier que la fenêtre existe
+                if not api or not api.gui or not api.gui.util then return end
+                local statusText = api.gui.util.getById("telecom_status_text")
+                if not statusText then return end
 
-                local townCount = 0
-                local nodeCount = 0
-                local entities = api.engine.getEntities() or {}
-                
+                -- Collecter les données directement (thread UI peut lire api.engine)
+                local wireNodes   = 0
+                local mobileNodes = 0
+                local townCount   = 0
+                local coveredTowns = 0
+
+                -- Scanner les entités
+                local entities = {}
+                pcall(function()
+                    entities = api.engine.getEntities() or {}
+                end)
+
+                local towns = {}
+                local nodes = {}
+
                 for _, id in ipairs(entities) do
-                    local tComp = api.engine.getComponent(id, api.type.ComponentType.TOWN)
-                    if tComp then townCount = townCount + 1 end
-                    
-                    local cComp = api.engine.getComponent(id, api.type.ComponentType.CONSTRUCTION)
-                    if cComp and cComp.fileName and string.find(cComp.fileName, "telecom") then
-                        nodeCount = nodeCount + 1
+                    pcall(function()
+                        -- Villes
+                        local tComp = api.engine.getComponent(id, api.type.ComponentType.TOWN)
+                        if tComp then
+                            townCount = townCount + 1
+                            local tf = api.engine.getComponent(id, api.type.ComponentType.TRANSFORM)
+                            if tf and tf.transf then
+                                table.insert(towns, {
+                                    x = tf.transf[13] or 0,
+                                    y = tf.transf[14] or 0,
+                                })
+                            end
+                        end
+
+                        -- Constructions télécom
+                        local cComp = api.engine.getComponent(id, api.type.ComponentType.CONSTRUCTION)
+                        if cComp and cComp.fileName then
+                            local fn = cComp.fileName
+                            if fn:find("telecom") then
+                                local isWire = fn:find("fixed_line") or fn:find("fiber")
+                                if isWire then
+                                    wireNodes = wireNodes + 1
+                                else
+                                    mobileNodes = mobileNodes + 1
+                                end
+
+                                local tf = api.engine.getComponent(id, api.type.ComponentType.TRANSFORM)
+                                if tf and tf.transf then
+                                    table.insert(nodes, {
+                                        x = tf.transf[13] or 0,
+                                        y = tf.transf[14] or 0,
+                                        r = 500, -- rayon approximatif pour l'UI
+                                    })
+                                end
+                            end
+                        end
+                    end)
+                end
+
+                -- Compter les villes couvertes (approximation simple)
+                for _, town in ipairs(towns) do
+                    for _, node in ipairs(nodes) do
+                        local dx = town.x - node.x
+                        local dy = town.y - node.y
+                        if math.sqrt(dx*dx + dy*dy) <= node.r then
+                            coveredTowns = coveredTowns + 1
+                            break
+                        end
                     end
                 end
 
+                -- Lire l'intervalle de développement actuel
                 local interval = 60
-                if game and game.config and game.config.townDevelopInterval then
-                    interval = game.config.townDevelopInterval
-                end
+                pcall(function()
+                    if game and game.config and game.config.townDevelopInterval then
+                        interval = game.config.townDevelopInterval
+                    end
+                end)
 
                 local bonusPct = 0
                 if interval < 60 then
-                    bonusPct = 60.0 * (1.0 - (interval / 60.0))
+                    bonusPct = math.floor(60.0 * (1.0 - (interval / 60.0)) + 0.5)
                 end
 
-                local text = string.format(
-                    "▶ Infrastructures actives : %d\n" ..
-                    "▶ Villes sur la carte : %d\n\n" ..
-                    "📈 Bonus de croissance estimé : +%.1f%%\n" ..
-                    "⏱️ Rythme de développement : %d ticks",
-                    nodeCount, townCount, bonusPct, interval
-                )
-                textView:setText(text)
+                -- Construire le texte d'affichage
+                local lines = {}
+                table.insert(lines, "--- Infrastructures ---")
+                table.insert(lines, "  Filaire : " .. wireNodes .. " noeuds")
+                table.insert(lines, "  Mobile  : " .. mobileNodes .. " antennes")
+                table.insert(lines, "")
+                table.insert(lines, "--- Couverture ---")
+                table.insert(lines, "  Villes couvertes : " .. coveredTowns .. " / " .. townCount)
+                table.insert(lines, "")
+                table.insert(lines, "--- Bonus ---")
+                table.insert(lines, "  Croissance : +" .. bonusPct .. "%")
+                table.insert(lines, "  Rythme     : " .. interval .. " ticks")
+
+                if bonusPct > 0 then
+                    table.insert(lines, "")
+                    table.insert(lines, "Le bonus de croissance est actif !")
+                end
+
+                statusText:setText(table.concat(lines, "\n"))
             end)
         end,
     }

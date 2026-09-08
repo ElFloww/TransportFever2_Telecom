@@ -1,5 +1,17 @@
 -- Nœud fibre optique 2020
 -- Bonus filaire majeur (+++) : améliore fortement la croissance urbaine.
+-- Affiche un cercle cyan au sol indiquant la zone de couverture.
+
+-- Génère un polygone circulaire de N sommets (approximation d'un cercle)
+local function generateCircle(radius, segments)
+    local nodes = {}
+    segments = segments or 32
+    for i = 0, segments - 1 do
+        local angle = (i / segments) * 2 * math.pi
+        table.insert(nodes, { math.cos(angle) * radius, math.sin(angle) * radius })
+    end
+    return nodes
+end
 
 function data()
     return {
@@ -33,6 +45,18 @@ function data()
                     {
                         id    = "telecom/cabinet.mdl",
                         transf = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 },
+                    },
+                },
+                groundFaces = {
+                    {
+                        nodes = generateCircle(r, 32),
+                        loop  = true,
+                        modes = {
+                            {
+                                type = "FILL",
+                                key  = "telecom/wire_coverage.lua",
+                            },
+                        },
                     },
                 },
                 metadata = {
