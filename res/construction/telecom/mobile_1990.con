@@ -47,18 +47,7 @@ function data()
                         transf = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 },
                     },
                 },
-                groundFaces = {
-                    {
-                        nodes = generateCircle(r, 32),
-                        loop  = true,
-                        modes = {
-                            {
-                                type = "FILL",
-                                key  = "telecom/mobile_coverage.lua",
-                            },
-                        },
-                    },
-                },
+                groundFaces = { },
                 metadata = {
                     telecom = {
                         kind   = "MOBILE",
