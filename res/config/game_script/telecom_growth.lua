@@ -567,79 +567,134 @@ function data()
                 local bonusText = api.gui.util.getById("telecom_status_text")
                 if not infraText and not covText and not bonusText then return end
 
-                -- ============================================================
-                -- COLLECTE DES DONNÉES via game.interface (UI thread safe)
-                -- ============================================================
+                local firstCycle = (_telecom_gui_tick == 120)
 
-                -- 1. Villes
+                -- ============================================================
+                -- 1. VILLES via getTowns() + getEntity()
+                -- ============================================================
                 local towns = {}
                 pcall(function()
                     local townIds = game.interface.getTowns() or {}
                     for _, tid in ipairs(townIds) do
                         pcall(function()
                             local e = game.interface.getEntity(tid)
-                            if e and e.position then
-                                table.insert(towns, {
-                                    x = e.position.x or 0,
-                                    y = e.position.y or 0,
-                                })
-                            end
+                            if not (e and e.position) then return end
+                            local p = e.position
+                            -- position peut être {x,y,z} ou {[1],[2],[3]}
+                            local px = p.x or p[1] or 0
+                            local py = p.y or p[2] or 0
+                            table.insert(towns, { x = px, y = py })
                         end)
                     end
                 end)
+                if firstCycle then print("[Telecom GUI] Villes: " .. #towns) end
 
-                -- 2. Nœuds télécom : scanner toutes les entités
+                -- ============================================================
+                -- 2. CONSTRUCTIONS TELECOM
+                -- Essai de plusieurs signatures pour getEntities()
+                -- ============================================================
                 local wireNodes   = 0
                 local mobileNodes = 0
                 local nodes = {}
 
+                -- Fonction helper : extraire position d'un getEntity
+                local function getPos(eid)
+                    local e = game.interface.getEntity(eid)
+                    if not (e and e.position) then return nil end
+                    local p = e.position
+                    return p.x or p[1] or 0, p.y or p[2] or 0
+                end
+
+                -- Fonction helper : traiter un ID de construction potentielle
+                local function tryConstruction(eid)
+                    local ce = game.interface.getConstructionEntity(eid)
+                    if not (ce and ce.fileName) then return end
+                    local fn = ce.fileName
+                    if not fn:find("telecom") then return end
+
+                    if firstCycle then print("[Telecom GUI] Noeud: " .. fn) end
+
+                    local isWire = fn:find("fixed_line") or fn:find("fiber")
+                    local radius = 600
+                    pcall(function()
+                        local p = ce.params and ce.params[1]
+                        if p then
+                            if fn:find("fixed_line_1850") then
+                                radius = ({100,200,300,400,500})[p+1] or 300
+                            elseif fn:find("fiber_2020") then
+                                radius = ({300,450,600,900,1200})[p+1] or 600
+                            elseif fn:find("mobile_1990") then
+                                radius = ({400,600,800,1000})[p+1] or 600
+                            elseif fn:find("mobile_2030") then
+                                radius = ({800,1200,1600,2000})[p+1] or 1200
+                            end
+                        end
+                    end)
+
+                    if isWire then wireNodes = wireNodes + 1
+                    else mobileNodes = mobileNodes + 1 end
+
+                    local nx, ny = getPos(eid)
+                    if nx then
+                        table.insert(nodes, { x = nx, y = ny, r = radius })
+                    end
+                end
+
+                -- Tentative A : getEntities({type="CONSTRUCTION"})
+                local gotIds = false
                 pcall(function()
-                    local allIds = game.interface.getEntities() or {}
-                    for _, eid in ipairs(allIds) do
-                        pcall(function()
-                            local ce = game.interface.getConstructionEntity(eid)
-                            if not (ce and ce.fileName) then return end
-                            local fn = ce.fileName
-                            if not fn:find("telecom") then return end
-
-                            local isWire = fn:find("fixed_line") or fn:find("fiber")
-                            local radius = 600
-
-                            -- Rayon depuis les params
-                            pcall(function()
-                                local p = ce.params and ce.params[1]
-                                if p then
-                                    if fn:find("fixed_line_1850") then
-                                        radius = ({100,200,300,400,500})[p+1] or 300
-                                    elseif fn:find("fiber_2020") then
-                                        radius = ({300,450,600,900,1200})[p+1] or 600
-                                    elseif fn:find("mobile_1990") then
-                                        radius = ({400,600,800,1000})[p+1] or 600
-                                    elseif fn:find("mobile_2030") then
-                                        radius = ({800,1200,1600,2000})[p+1] or 1200
-                                    end
-                                end
-                            end)
-
-                            if isWire then wireNodes = wireNodes + 1
-                            else mobileNodes = mobileNodes + 1 end
-
-                            -- Position du nœud
-                            pcall(function()
-                                local e = game.interface.getEntity(eid)
-                                if e and e.position then
-                                    table.insert(nodes, {
-                                        x = e.position.x or 0,
-                                        y = e.position.y or 0,
-                                        r = radius,
-                                    })
-                                end
-                            end)
-                        end)
+                    local ids = game.interface.getEntities({type = "CONSTRUCTION"})
+                    if ids and #ids > 0 then
+                        gotIds = true
+                        if firstCycle then print("[Telecom GUI] getEntities({type=CONSTRUCTION}): " .. #ids) end
+                        for _, eid in ipairs(ids) do pcall(tryConstruction, eid) end
                     end
                 end)
 
-                -- 3. Villes couvertes
+                -- Tentative B : getEntities("CONSTRUCTION")
+                if not gotIds then
+                    pcall(function()
+                        local ids = game.interface.getEntities("CONSTRUCTION")
+                        if ids and #ids > 0 then
+                            gotIds = true
+                            if firstCycle then print("[Telecom GUI] getEntities(CONSTRUCTION): " .. #ids) end
+                            for _, eid in ipairs(ids) do pcall(tryConstruction, eid) end
+                        end
+                    end)
+                end
+
+                -- Tentative C : getEntities avec bounding box mondiale
+                if not gotIds then
+                    pcall(function()
+                        local world = game.interface.getWorld and game.interface.getWorld()
+                        local sz = (world and world.size and world.size[1]) or 16384
+                        local ids = game.interface.getEntities({x=0,y=0,z=0}, sz)
+                        if ids and #ids > 0 then
+                            gotIds = true
+                            if firstCycle then print("[Telecom GUI] getEntities bbox: " .. #ids) end
+                            for _, eid in ipairs(ids) do pcall(tryConstruction, eid) end
+                        end
+                    end)
+                end
+
+                -- Tentative D : forEachEntity (api.engine, UI thread)
+                if not gotIds then
+                    pcall(function()
+                        api.engine.forEachEntity(function(eid)
+                            pcall(tryConstruction, eid)
+                        end)
+                        gotIds = true
+                        if firstCycle then print("[Telecom GUI] forEachEntity utilise") end
+                    end)
+                end
+
+                if firstCycle then
+                    print("[Telecom GUI] Noeuds wire=" .. wireNodes .. " mobile=" .. mobileNodes)
+                end
+
+                -- ============================================================
+                -- 3. COUVERTURE
+                -- ============================================================
                 local coveredTowns = 0
                 for _, town in ipairs(towns) do
                     for _, node in ipairs(nodes) do
@@ -652,7 +707,9 @@ function data()
                     end
                 end
 
-                -- 4. Bonus depuis game.config
+                -- ============================================================
+                -- 4. BONUS
+                -- ============================================================
                 local interval = 60
                 pcall(function()
                     if game.config and game.config.townDevelopInterval then
