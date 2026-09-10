@@ -358,11 +358,20 @@ function data()
 
         guiInit = function()
             -- Tout dans un pcall pour ne jamais crasher le jeu
-            pcall(function()
+            local ok, err = pcall(function()
                 -- Vérifier que l'API GUI est disponible
-                if not api or not api.gui or not api.gui.comp then return end
-                if not api.gui.comp.Window then return end
-                if not api.gui.layout then return end
+                if not api or not api.gui or not api.gui.comp then 
+                    print("[Telecom] Erreur : api.gui non disponible")
+                    return 
+                end
+                if not api.gui.comp.Window then 
+                    print("[Telecom] Erreur : api.gui.comp.Window non disponible")
+                    return 
+                end
+                if not api.gui.layout then 
+                    print("[Telecom] Erreur : api.gui.layout non disponible")
+                    return 
+                end
 
                 -- Créer le contenu de la fenêtre
                 local layout = api.gui.layout.BoxLayout.new("VERTICAL")
@@ -395,8 +404,8 @@ function data()
                     window:setPosition(100, 200)
                 end
 
-                -- Caché par défaut
-                window:setVisible(false, false)
+                -- VISIBLE PAR DEFAUT (Pour s'assurer qu'elle s'affiche même si le bouton échoue)
+                window:setVisible(true, false)
 
                 -- Bouton toggle dans la barre du jeu
                 local btnLabel = api.gui.comp.TextView.new("Telecom")
@@ -418,6 +427,8 @@ function data()
                     local gameInfo = api.gui.util.getById("gameInfo")
                     if gameInfo and gameInfo.getLayout then
                         gameInfo:getLayout():addItem(toggleBtn)
+                    else
+                        print("[Telecom] Avertissement : gameInfo introuvable, impossible d'ajouter le bouton")
                     end
                 end)
 
@@ -425,6 +436,9 @@ function data()
                 _telecom_gui_tick = 0
                 print("[Telecom] UI initialisée avec succès")
             end)
+            if not ok then
+                print("[Telecom] CRASH dans guiInit : " .. tostring(err))
+            end
         end,
 
         guiUpdate = function()
