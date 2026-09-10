@@ -357,57 +357,58 @@ function data()
         -- =====================================================================
 
         guiInit = function()
-            -- Tout dans un pcall pour ne jamais crasher le jeu
             local ok, err = pcall(function()
-                -- Vérifier que l'API GUI est disponible
-                if not api or not api.gui or not api.gui.comp then 
-                    print("[Telecom] Erreur : api.gui non disponible")
-                    return 
+                if not api or not api.gui or not api.gui.comp then
+                    print("[Telecom] ERREUR: api.gui.comp indisponible")
+                    return
                 end
-                if not api.gui.comp.Window then 
-                    print("[Telecom] Erreur : api.gui.comp.Window non disponible")
-                    return 
+                if not api.gui.layout or not api.gui.layout.BoxLayout then
+                    print("[Telecom] ERREUR: api.gui.layout.BoxLayout indisponible")
+                    return
                 end
-                if not api.gui.layout then 
-                    print("[Telecom] Erreur : api.gui.layout non disponible")
-                    return 
+                if not api.gui.comp.Window then
+                    print("[Telecom] ERREUR: api.gui.comp.Window indisponible")
+                    return
                 end
 
-                -- Créer le contenu de la fenêtre
+                -- Créer le layout et le contenu
                 local layout = api.gui.layout.BoxLayout.new("VERTICAL")
 
-                local headerText = api.gui.comp.TextView.new("Réseaux de Communication")
-                headerText:setId("telecom_header")
-                layout:addItem(headerText)
+                local titleText = api.gui.comp.TextView.new("=== Réseaux Telecom ===")
+                titleText:setId("telecom_title")
+                layout:addItem(titleText)
 
                 local statusText = api.gui.comp.TextView.new(
-                    "Placez des infrastructures télécom\n" ..
-                    "autour de vos villes pour booster\n" ..
-                    "leur croissance.\n\n" ..
-                    "Chargement des données..."
+                    "Initialisation...\n" ..
+                    "Placez des antennes/noeuds\n" ..
+                    "pour booster vos villes."
                 )
                 statusText:setId("telecom_status_text")
                 layout:addItem(statusText)
 
-                -- Créer la fenêtre (2 arguments : titre, layout)
+                -- Créer la fenêtre avec titre + layout (2 args obligatoires)
                 local window = api.gui.comp.Window.new("Telecom", layout)
                 window:setId("telecom_status_window")
+                print("[Telecom] Fenetre creee : " .. tostring(window))
 
-                -- Configurer la fenêtre
                 if window.addHideOnCloseHandler then
                     window:addHideOnCloseHandler()
                 end
+
+                -- Taille et position
                 if api.gui.util and api.gui.util.Size then
-                    window:setSize(api.gui.util.Size.new(350, 250))
-                end
-                if window.setPosition then
-                    window:setPosition(100, 200)
+                    window:setSize(api.gui.util.Size.new(320, 220))
+                    print("[Telecom] Taille definie : 320x220")
                 end
 
-                -- VISIBLE PAR DEFAUT (Pour s'assurer qu'elle s'affiche même si le bouton échoue)
-                window:setVisible(true, false)
+                -- Rendre visible RECURSIVEMENT (true, true)
+                window:setVisible(true, true)
+                print("[Telecom] setVisible(true,true) appele")
 
-                -- Bouton toggle dans la barre du jeu
+                -- ---------------------------------------------------------------
+                -- Injecter un bouton toggle dans la barre du jeu
+                -- On tente plusieurs IDs connus pour la barre d'information
+                -- ---------------------------------------------------------------
                 local btnLabel = api.gui.comp.TextView.new("Telecom")
                 local toggleBtn = api.gui.comp.Button.new(btnLabel, true)
                 toggleBtn:setId("telecom_toggle_btn")
@@ -416,28 +417,50 @@ function data()
                     pcall(function()
                         local w = api.gui.util.getById("telecom_status_window")
                         if w then
-                            local vis = w:isVisible()
-                            w:setVisible(not vis, false)
+                            w:setVisible(not w:isVisible(), true)
                         end
                     end)
                 end)
 
-                -- Essayer d'injecter le bouton dans la barre du jeu
-                pcall(function()
-                    local gameInfo = api.gui.util.getById("gameInfo")
-                    if gameInfo and gameInfo.getLayout then
-                        gameInfo:getLayout():addItem(toggleBtn)
-                    else
-                        print("[Telecom] Avertissement : gameInfo introuvable, impossible d'ajouter le bouton")
-                    end
-                end)
+                -- Liste des IDs de conteneurs à tester dans la barre du jeu
+                local containerIds = {
+                    "gameInfo",
+                    "toolbar",
+                    "topBar",
+                    "bottomBar",
+                    "statusBar",
+                    "infoBar",
+                    "gameToolbar",
+                    "mainToolbar",
+                }
+                local injected = false
+                for _, cid in ipairs(containerIds) do
+                    pcall(function()
+                        local container = api.gui.util.getById(cid)
+                        if container then
+                            if container.getLayout and container:getLayout() then
+                                container:getLayout():addItem(toggleBtn)
+                                print("[Telecom] Bouton injecte dans : " .. cid)
+                                injected = true
+                            elseif container.addItem then
+                                container:addItem(toggleBtn)
+                                print("[Telecom] Bouton addItem dans : " .. cid)
+                                injected = true
+                            end
+                        end
+                    end)
+                    if injected then break end
+                end
+                if not injected then
+                    print("[Telecom] AVERTISSEMENT: aucun conteneur trouve pour le bouton")
+                    print("[Telecom] La fenetre est visible sans bouton toggle")
+                end
 
-                -- Variable globale pour le compteur de frames UI
                 _telecom_gui_tick = 0
-                print("[Telecom] UI initialisée avec succès")
+                print("[Telecom] guiInit TERMINE avec succes")
             end)
             if not ok then
-                print("[Telecom] CRASH dans guiInit : " .. tostring(err))
+                print("[Telecom] CRASH guiInit: " .. tostring(err))
             end
         end,
 
