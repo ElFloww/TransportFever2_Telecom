@@ -358,106 +358,143 @@ function data()
 
         guiInit = function()
             local ok, err = pcall(function()
-                if not api or not api.gui or not api.gui.comp then
-                    print("[Telecom] ERREUR: api.gui.comp indisponible")
-                    return
-                end
-                if not api.gui.layout or not api.gui.layout.BoxLayout then
-                    print("[Telecom] ERREUR: api.gui.layout.BoxLayout indisponible")
-                    return
-                end
-                if not api.gui.comp.Window then
+                if not (api and api.gui and api.gui.comp and api.gui.comp.Window) then
                     print("[Telecom] ERREUR: api.gui.comp.Window indisponible")
                     return
                 end
+                if not (api.gui.layout and api.gui.layout.BoxLayout) then
+                    print("[Telecom] ERREUR: api.gui.layout.BoxLayout indisponible")
+                    return
+                end
 
-                -- Créer le layout et le contenu
-                local layout = api.gui.layout.BoxLayout.new("VERTICAL")
+                -- ----------------------------------------------------------------
+                -- CONSTRUCTION DE LA FENETRE
+                -- ----------------------------------------------------------------
+                local outerLayout = api.gui.layout.BoxLayout.new("VERTICAL")
 
-                local titleText = api.gui.comp.TextView.new("=== Réseaux Telecom ===")
-                titleText:setId("telecom_title")
-                layout:addItem(titleText)
+                -- En-tête
+                local title = api.gui.comp.TextView.new("📡  Réseaux de Communication")
+                title:setId("telecom_title")
+                outerLayout:addItem(title)
 
-                local statusText = api.gui.comp.TextView.new(
-                    "Initialisation...\n" ..
-                    "Placez des antennes/noeuds\n" ..
-                    "pour booster vos villes."
+                local sep1 = api.gui.comp.TextView.new("────────────────────────────")
+                outerLayout:addItem(sep1)
+
+                -- Section infrastructure
+                local secInfra = api.gui.comp.TextView.new("[ Infrastructures ]")
+                outerLayout:addItem(secInfra)
+
+                local infraText = api.gui.comp.TextView.new(
+                    "  Filaire  : 0 noeud(s)\n" ..
+                    "  Mobile   : 0 antenne(s)"
                 )
-                statusText:setId("telecom_status_text")
-                layout:addItem(statusText)
+                infraText:setId("telecom_infra_text")
+                outerLayout:addItem(infraText)
 
-                -- Créer la fenêtre avec titre + layout (2 args obligatoires)
-                local window = api.gui.comp.Window.new("Telecom", layout)
+                local sep2 = api.gui.comp.TextView.new("────────────────────────────")
+                outerLayout:addItem(sep2)
+
+                -- Section couverture
+                local secCov = api.gui.comp.TextView.new("[ Couverture ]")
+                outerLayout:addItem(secCov)
+
+                local covText = api.gui.comp.TextView.new(
+                    "  Villes couvertes : 0 / 0\n" ..
+                    "  Taux             : 0%"
+                )
+                covText:setId("telecom_cov_text")
+                outerLayout:addItem(covText)
+
+                local sep3 = api.gui.comp.TextView.new("────────────────────────────")
+                outerLayout:addItem(sep3)
+
+                -- Section bonus
+                local secBonus = api.gui.comp.TextView.new("[ Effet sur la croissance ]")
+                outerLayout:addItem(secBonus)
+
+                local bonusText = api.gui.comp.TextView.new(
+                    "  Bonus actuel : +0%\n" ..
+                    "  Intervalle   : 60 ticks (défaut)"
+                )
+                bonusText:setId("telecom_status_text")  -- ID gardé pour compatibilité guiUpdate
+                outerLayout:addItem(bonusText)
+
+                -- Pied de fenêtre
+                local sep4 = api.gui.comp.TextView.new("────────────────────────────")
+                outerLayout:addItem(sep4)
+
+                local footer = api.gui.comp.TextView.new(
+                    "Placez des infrastructures autour\n" ..
+                    "de vos villes pour les connecter."
+                )
+                outerLayout:addItem(footer)
+
+                -- ----------------------------------------------------------------
+                -- FENETRE PRINCIPALE
+                -- ----------------------------------------------------------------
+                local window = api.gui.comp.Window.new("Telecom — Réseaux de Communication", outerLayout)
                 window:setId("telecom_status_window")
-                print("[Telecom] Fenetre creee : " .. tostring(window))
 
                 if window.addHideOnCloseHandler then
                     window:addHideOnCloseHandler()
                 end
-
-                -- Taille et position
                 if api.gui.util and api.gui.util.Size then
-                    window:setSize(api.gui.util.Size.new(320, 220))
-                    print("[Telecom] Taille definie : 320x220")
+                    window:setSize(api.gui.util.Size.new(480, 380))
                 end
 
-                -- Rendre visible RECURSIVEMENT (true, true)
                 window:setVisible(true, true)
-                print("[Telecom] setVisible(true,true) appele")
+                print("[Telecom] Fenetre principale creee et visible")
 
-                -- ---------------------------------------------------------------
-                -- Injecter un bouton toggle dans la barre du jeu
-                -- On tente plusieurs IDs connus pour la barre d'information
-                -- ---------------------------------------------------------------
-                local btnLabel = api.gui.comp.TextView.new("Telecom")
+                -- ----------------------------------------------------------------
+                -- BOUTON TOGGLE — scan de l'arbre UI pour trouver le bon conteneur
+                -- ----------------------------------------------------------------
+                local btnLabel = api.gui.comp.TextView.new("📡 Telecom")
                 local toggleBtn = api.gui.comp.Button.new(btnLabel, true)
                 toggleBtn:setId("telecom_toggle_btn")
 
                 toggleBtn:onClick(function()
                     pcall(function()
                         local w = api.gui.util.getById("telecom_status_window")
-                        if w then
-                            w:setVisible(not w:isVisible(), true)
-                        end
+                        if w then w:setVisible(not w:isVisible(), true) end
                     end)
                 end)
 
-                -- Liste des IDs de conteneurs à tester dans la barre du jeu
-                local containerIds = {
-                    "gameInfo",
-                    "toolbar",
-                    "topBar",
-                    "bottomBar",
-                    "statusBar",
-                    "infoBar",
-                    "gameToolbar",
-                    "mainToolbar",
+                -- Scan élargi de tous les conteneurs connus dans TF2/CommonAPI2
+                local candidates = {
+                    "gameInfo", "toolbar", "topBar", "bottomBar",
+                    "statusBar", "infoBar", "gameToolbar", "mainToolbar",
+                    "gameBar", "menuBar", "buttonBar", "mainMenuBar",
+                    "mainMenu", "mainPanel", "gamePanel", "topPanel",
+                    "bottomPanel", "sidePanel", "rightPanel", "leftPanel",
+                    "hudBar", "hud", "gameHud", "topHud",
                 }
+
                 local injected = false
-                for _, cid in ipairs(containerIds) do
-                    pcall(function()
-                        local container = api.gui.util.getById(cid)
-                        if container then
-                            if container.getLayout and container:getLayout() then
-                                container:getLayout():addItem(toggleBtn)
-                                print("[Telecom] Bouton injecte dans : " .. cid)
-                                injected = true
-                            elseif container.addItem then
-                                container:addItem(toggleBtn)
-                                print("[Telecom] Bouton addItem dans : " .. cid)
-                                injected = true
+                for _, cid in ipairs(candidates) do
+                    if not injected then
+                        pcall(function()
+                            local c = api.gui.util.getById(cid)
+                            if c then
+                                local layout = nil
+                                pcall(function() layout = c:getLayout() end)
+                                if layout then
+                                    layout:addItem(toggleBtn)
+                                    injected = true
+                                    print("[Telecom] Bouton injecte dans conteneur : " .. cid)
+                                end
                             end
-                        end
-                    end)
-                    if injected then break end
+                        end)
+                    end
                 end
+
                 if not injected then
-                    print("[Telecom] AVERTISSEMENT: aucun conteneur trouve pour le bouton")
-                    print("[Telecom] La fenetre est visible sans bouton toggle")
+                    print("[Telecom] Aucun conteneur UI connu trouve. Lance cette commande")
+                    print("[Telecom] pour trouver les IDs disponibles :")
+                    print("[Telecom]   for k,v in pairs(api.gui.util) do print(k,type(v)) end")
                 end
 
                 _telecom_gui_tick = 0
-                print("[Telecom] guiInit TERMINE avec succes")
+                print("[Telecom] guiInit terminee")
             end)
             if not ok then
                 print("[Telecom] CRASH guiInit: " .. tostring(err))
@@ -467,70 +504,77 @@ function data()
         guiUpdate = function()
             pcall(function()
                 _telecom_gui_tick = (_telecom_gui_tick or 0) + 1
-                -- Mise à jour toutes les ~120 frames pour ne pas surcharger l'UI
+                -- Mise à jour toutes les ~120 frames (~2s à 60fps)
                 if _telecom_gui_tick % 120 ~= 0 then return end
+                if not (api and api.gui and api.gui.util) then return end
 
-                -- Vérifier que la fenêtre existe
-                if not api or not api.gui or not api.gui.util then return end
-                local statusText = api.gui.util.getById("telecom_status_text")
-                if not statusText then return end
+                -- Récupérer les 3 zones de texte
+                local infraText = api.gui.util.getById("telecom_infra_text")
+                local covText   = api.gui.util.getById("telecom_cov_text")
+                local bonusText = api.gui.util.getById("telecom_status_text")
+                if not infraText and not covText and not bonusText then return end
 
-                -- Collecter les données directement (thread UI peut lire api.engine)
+                -- -----------------------------------------------
+                -- Collecter les données
+                -- -----------------------------------------------
                 local wireNodes   = 0
                 local mobileNodes = 0
                 local townCount   = 0
                 local coveredTowns = 0
-
-                -- Scanner les entités
-                local entities = {}
-                pcall(function()
-                    entities = api.engine.getEntities() or {}
-                end)
-
                 local towns = {}
                 local nodes = {}
 
+                local entities = {}
+                pcall(function() entities = api.engine.getEntities() or {} end)
+
                 for _, id in ipairs(entities) do
                     pcall(function()
-                        -- Villes
                         local tComp = api.engine.getComponent(id, api.type.ComponentType.TOWN)
                         if tComp then
                             townCount = townCount + 1
                             local tf = api.engine.getComponent(id, api.type.ComponentType.TRANSFORM)
                             if tf and tf.transf then
-                                table.insert(towns, {
-                                    x = tf.transf[13] or 0,
-                                    y = tf.transf[14] or 0,
-                                })
+                                table.insert(towns, { x = tf.transf[13] or 0, y = tf.transf[14] or 0 })
                             end
                         end
 
-                        -- Constructions télécom
                         local cComp = api.engine.getComponent(id, api.type.ComponentType.CONSTRUCTION)
-                        if cComp and cComp.fileName then
+                        if cComp and cComp.fileName and cComp.fileName:find("telecom") then
                             local fn = cComp.fileName
-                            if fn:find("telecom") then
-                                local isWire = fn:find("fixed_line") or fn:find("fiber")
-                                if isWire then
-                                    wireNodes = wireNodes + 1
-                                else
-                                    mobileNodes = mobileNodes + 1
-                                end
+                            local isWire = fn:find("fixed_line") or fn:find("fiber")
+                            local radius = 600 -- rayon approx par défaut
 
-                                local tf = api.engine.getComponent(id, api.type.ComponentType.TRANSFORM)
-                                if tf and tf.transf then
-                                    table.insert(nodes, {
-                                        x = tf.transf[13] or 0,
-                                        y = tf.transf[14] or 0,
-                                        r = 500, -- rayon approximatif pour l'UI
-                                    })
+                            -- Essayer de récupérer le vrai rayon depuis params
+                            pcall(function()
+                                if cComp.params and cComp.params[1] then
+                                    if fn:find("fixed_line_1850") then
+                                        local r = ({100,200,300,400,500})[cComp.params[1]+1]; if r then radius = r end
+                                    elseif fn:find("fiber_2020") then
+                                        local r = ({300,450,600,900,1200})[cComp.params[1]+1]; if r then radius = r end
+                                    elseif fn:find("mobile_1990") then
+                                        local r = ({400,600,800,1000})[cComp.params[1]+1]; if r then radius = r end
+                                    elseif fn:find("mobile_2030") then
+                                        local r = ({800,1200,1600,2000})[cComp.params[1]+1]; if r then radius = r end
+                                    end
                                 end
+                            end)
+
+                            if isWire then wireNodes = wireNodes + 1
+                            else mobileNodes = mobileNodes + 1 end
+
+                            local tf = api.engine.getComponent(id, api.type.ComponentType.TRANSFORM)
+                            if tf and tf.transf then
+                                table.insert(nodes, {
+                                    x = tf.transf[13] or 0,
+                                    y = tf.transf[14] or 0,
+                                    r = radius,
+                                })
                             end
                         end
                     end)
                 end
 
-                -- Compter les villes couvertes (approximation simple)
+                -- Villes couvertes
                 for _, town in ipairs(towns) do
                     for _, node in ipairs(nodes) do
                         local dx = town.x - node.x
@@ -542,38 +586,44 @@ function data()
                     end
                 end
 
-                -- Lire l'intervalle de développement actuel
+                -- Bonus
                 local interval = 60
                 pcall(function()
                     if game and game.config and game.config.townDevelopInterval then
                         interval = game.config.townDevelopInterval
                     end
                 end)
-
                 local bonusPct = 0
                 if interval < 60 then
                     bonusPct = math.floor(60.0 * (1.0 - (interval / 60.0)) + 0.5)
                 end
+                local coverPct = townCount > 0 and math.floor(coveredTowns * 100 / townCount) or 0
 
-                -- Construire le texte d'affichage
-                local lines = {}
-                table.insert(lines, "--- Infrastructures ---")
-                table.insert(lines, "  Filaire : " .. wireNodes .. " noeuds")
-                table.insert(lines, "  Mobile  : " .. mobileNodes .. " antennes")
-                table.insert(lines, "")
-                table.insert(lines, "--- Couverture ---")
-                table.insert(lines, "  Villes couvertes : " .. coveredTowns .. " / " .. townCount)
-                table.insert(lines, "")
-                table.insert(lines, "--- Bonus ---")
-                table.insert(lines, "  Croissance : +" .. bonusPct .. "%")
-                table.insert(lines, "  Rythme     : " .. interval .. " ticks")
-
-                if bonusPct > 0 then
-                    table.insert(lines, "")
-                    table.insert(lines, "Le bonus de croissance est actif !")
+                -- -----------------------------------------------
+                -- Mise à jour des 3 zones de texte séparées
+                -- -----------------------------------------------
+                if infraText then
+                    infraText:setText(
+                        "  Filaire  : " .. wireNodes .. " noeud(s)\n" ..
+                        "  Mobile   : " .. mobileNodes .. " antenne(s)"
+                    )
                 end
 
-                statusText:setText(table.concat(lines, "\n"))
+                if covText then
+                    covText:setText(
+                        "  Villes couvertes : " .. coveredTowns .. " / " .. townCount .. "\n" ..
+                        "  Taux             : " .. coverPct .. "%"
+                    )
+                end
+
+                if bonusText then
+                    local status = bonusPct > 0 and "ACTIF" or "inactif"
+                    bonusText:setText(
+                        "  Bonus actuel : +" .. bonusPct .. "% (" .. status .. ")\n" ..
+                        "  Intervalle   : " .. interval .. " ticks" ..
+                            (interval < 60 and " (accelere !)" or " (defaut)")
+                    )
+                end
             end)
         end,
     }
