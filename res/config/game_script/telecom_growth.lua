@@ -439,7 +439,7 @@ function data()
                     window:addHideOnCloseHandler()
                 end
                 if api.gui.util and api.gui.util.Size then
-                    window:setSize(api.gui.util.Size.new(480, 380))
+                    window:setSize(api.gui.util.Size.new(500, 520))
                 end
 
                 window:setVisible(true, true)
@@ -514,73 +514,92 @@ function data()
                 if _telecom_gui_tick % 120 ~= 0 then return end
                 if not (api and api.gui and api.gui.util) then return end
 
-                -- Récupérer les 3 zones de texte
                 local infraText = api.gui.util.getById("telecom_infra_text")
                 local covText   = api.gui.util.getById("telecom_cov_text")
                 local bonusText = api.gui.util.getById("telecom_status_text")
                 if not infraText and not covText and not bonusText then return end
 
-                -- -----------------------------------------------
-                -- Collecter les données
-                -- -----------------------------------------------
-                local wireNodes   = 0
-                local mobileNodes = 0
-                local townCount   = 0
+                local wireNodes    = 0
+                local mobileNodes  = 0
+                local townCount    = 0
                 local coveredTowns = 0
                 local towns = {}
                 local nodes = {}
 
-                local entities = {}
-                pcall(function() entities = api.engine.getEntities() or {} end)
+                local firstCycle = (_telecom_gui_tick == 120)
 
-                for _, id in ipairs(entities) do
+                -- -----------------------------------------------
+                -- Villes : getEntitiesOfType TOWN (plus fiable en UI thread)
+                -- -----------------------------------------------
+                local townIds = {}
+                pcall(function()
+                    townIds = api.engine.getEntitiesOfType(api.type.EntityType.TOWN) or {}
+                end)
+                if firstCycle then print("[Telecom] Villes trouvees: " .. #townIds) end
+
+                for _, id in ipairs(townIds) do
                     pcall(function()
-                        local tComp = api.engine.getComponent(id, api.type.ComponentType.TOWN)
-                        if tComp then
-                            townCount = townCount + 1
-                            local tf = api.engine.getComponent(id, api.type.ComponentType.TRANSFORM)
-                            if tf and tf.transf then
-                                table.insert(towns, { x = tf.transf[13] or 0, y = tf.transf[14] or 0 })
-                            end
-                        end
-
-                        local cComp = api.engine.getComponent(id, api.type.ComponentType.CONSTRUCTION)
-                        if cComp and cComp.fileName and cComp.fileName:find("telecom") then
-                            local fn = cComp.fileName
-                            local isWire = fn:find("fixed_line") or fn:find("fiber")
-                            local radius = 600 -- rayon approx par défaut
-
-                            -- Essayer de récupérer le vrai rayon depuis params
-                            pcall(function()
-                                if cComp.params and cComp.params[1] then
-                                    if fn:find("fixed_line_1850") then
-                                        local r = ({100,200,300,400,500})[cComp.params[1]+1]; if r then radius = r end
-                                    elseif fn:find("fiber_2020") then
-                                        local r = ({300,450,600,900,1200})[cComp.params[1]+1]; if r then radius = r end
-                                    elseif fn:find("mobile_1990") then
-                                        local r = ({400,600,800,1000})[cComp.params[1]+1]; if r then radius = r end
-                                    elseif fn:find("mobile_2030") then
-                                        local r = ({800,1200,1600,2000})[cComp.params[1]+1]; if r then radius = r end
-                                    end
-                                end
-                            end)
-
-                            if isWire then wireNodes = wireNodes + 1
-                            else mobileNodes = mobileNodes + 1 end
-
-                            local tf = api.engine.getComponent(id, api.type.ComponentType.TRANSFORM)
-                            if tf and tf.transf then
-                                table.insert(nodes, {
-                                    x = tf.transf[13] or 0,
-                                    y = tf.transf[14] or 0,
-                                    r = radius,
-                                })
-                            end
+                        townCount = townCount + 1
+                        local tf = api.engine.getComponent(id, api.type.ComponentType.TRANSFORM)
+                        if tf and tf.transf then
+                            table.insert(towns, { x = tf.transf[13] or 0, y = tf.transf[14] or 0 })
                         end
                     end)
                 end
 
+                -- -----------------------------------------------
+                -- Constructions : getEntitiesOfType CONSTRUCTION
+                -- -----------------------------------------------
+                local conIds = {}
+                pcall(function()
+                    conIds = api.engine.getEntitiesOfType(api.type.EntityType.CONSTRUCTION) or {}
+                end)
+                if firstCycle then print("[Telecom] Constructions trouvees: " .. #conIds) end
+
+                for _, id in ipairs(conIds) do
+                    pcall(function()
+                        local cComp = api.engine.getComponent(id, api.type.ComponentType.CONSTRUCTION)
+                        if not (cComp and cComp.fileName) then return end
+                        local fn = cComp.fileName
+                        if not fn:find("telecom") then return end
+
+                        if firstCycle then print("[Telecom] Noeud telecom: " .. fn) end
+
+                        local isWire = fn:find("fixed_line") or fn:find("fiber")
+                        local radius = 600
+
+                        pcall(function()
+                            if cComp.params and cComp.params[1] then
+                                local pIdx = cComp.params[1]
+                                if fn:find("fixed_line_1850") then
+                                    radius = ({100,200,300,400,500})[pIdx+1] or 300
+                                elseif fn:find("fiber_2020") then
+                                    radius = ({300,450,600,900,1200})[pIdx+1] or 600
+                                elseif fn:find("mobile_1990") then
+                                    radius = ({400,600,800,1000})[pIdx+1] or 600
+                                elseif fn:find("mobile_2030") then
+                                    radius = ({800,1200,1600,2000})[pIdx+1] or 1200
+                                end
+                            end
+                        end)
+
+                        if isWire then wireNodes = wireNodes + 1
+                        else mobileNodes = mobileNodes + 1 end
+
+                        local tf = api.engine.getComponent(id, api.type.ComponentType.TRANSFORM)
+                        if tf and tf.transf then
+                            table.insert(nodes, {
+                                x = tf.transf[13] or 0,
+                                y = tf.transf[14] or 0,
+                                r = radius,
+                            })
+                        end
+                    end)
+                end
+
+                -- -----------------------------------------------
                 -- Villes couvertes
+                -- -----------------------------------------------
                 for _, town in ipairs(towns) do
                     for _, node in ipairs(nodes) do
                         local dx = town.x - node.x
@@ -592,7 +611,9 @@ function data()
                     end
                 end
 
-                -- Bonus
+                -- -----------------------------------------------
+                -- Bonus (townDevelopInterval)
+                -- -----------------------------------------------
                 local interval = 60
                 pcall(function()
                     if game and game.config and game.config.townDevelopInterval then
@@ -606,7 +627,7 @@ function data()
                 local coverPct = townCount > 0 and math.floor(coveredTowns * 100 / townCount) or 0
 
                 -- -----------------------------------------------
-                -- Mise à jour des 3 zones de texte séparées
+                -- Mise à jour de l'affichage
                 -- -----------------------------------------------
                 if infraText then
                     infraText:setText(
@@ -627,7 +648,7 @@ function data()
                     bonusText:setText(
                         "  Bonus actuel : +" .. bonusPct .. "% (" .. status .. ")\n" ..
                         "  Intervalle   : " .. interval .. " ticks" ..
-                            (interval < 60 and " (accelere !)" or " (defaut)")
+                        (interval < 60 and " (accelere !)" or " (defaut)")
                     )
                 end
             end)
