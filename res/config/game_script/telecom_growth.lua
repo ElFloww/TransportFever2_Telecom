@@ -459,38 +459,44 @@ function data()
                     end)
                 end)
 
-                -- Scan élargi de tous les conteneurs connus dans TF2/CommonAPI2
-                local candidates = {
-                    "gameInfo", "toolbar", "topBar", "bottomBar",
-                    "statusBar", "infoBar", "gameToolbar", "mainToolbar",
-                    "gameBar", "menuBar", "buttonBar", "mainMenuBar",
-                    "mainMenu", "mainPanel", "gamePanel", "topPanel",
-                    "bottomPanel", "sidePanel", "rightPanel", "leftPanel",
-                    "hudBar", "hud", "gameHud", "topHud",
-                }
-
+                -- gameInfo est confirmé présent avec getLayout — injection du bouton
                 local injected = false
-                for _, cid in ipairs(candidates) do
-                    if not injected then
-                        pcall(function()
-                            local c = api.gui.util.getById(cid)
-                            if c then
-                                local layout = nil
-                                pcall(function() layout = c:getLayout() end)
-                                if layout then
-                                    layout:addItem(toggleBtn)
-                                    injected = true
-                                    print("[Telecom] Bouton injecte dans conteneur : " .. cid)
-                                end
-                            end
-                        end)
+                pcall(function()
+                    local gi = api.gui.util.getById("gameInfo")
+                    if not gi then print("[Telecom] gameInfo introuvable"); return end
+
+                    local lay = gi:getLayout()
+                    if not lay then print("[Telecom] getLayout() retourne nil"); return end
+
+                    -- Log le type de layout
+                    local mt = getmetatable(lay)
+                    if mt then
+                        print("[Telecom] Layout type: " .. tostring(mt.__name or mt.name or "inconnu"))
                     end
-                end
+
+                    -- Tentative addItem
+                    local ok2, err2 = pcall(function() lay:addItem(toggleBtn) end)
+                    if ok2 then
+                        injected = true
+                        print("[Telecom] Bouton injecte dans gameInfo via addItem !")
+                    else
+                        print("[Telecom] addItem echoue: " .. tostring(err2))
+
+                        -- Tentative insertItem (certains layouts l'exigent)
+                        local ok3, err3 = pcall(function()
+                            lay:insertItem(toggleBtn, lay:getNumItems())
+                        end)
+                        if ok3 then
+                            injected = true
+                            print("[Telecom] Bouton injecte via insertItem !")
+                        else
+                            print("[Telecom] insertItem echoue aussi: " .. tostring(err3))
+                        end
+                    end
+                end)
 
                 if not injected then
-                    print("[Telecom] Aucun conteneur UI connu trouve. Lance cette commande")
-                    print("[Telecom] pour trouver les IDs disponibles :")
-                    print("[Telecom]   for k,v in pairs(api.gui.util) do print(k,type(v)) end")
+                    print("[Telecom] Bouton non injecte - fenetre disponible sans bouton")
                 end
 
                 _telecom_gui_tick = 0
