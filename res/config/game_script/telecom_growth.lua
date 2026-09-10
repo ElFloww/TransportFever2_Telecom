@@ -488,17 +488,30 @@ function data()
                 end
                 if api.gui.util and api.gui.util.Size then
                     window:setSize(api.gui.util.Size.new(500, 520))
-                end
+                covBox:addItem(covTitle)
+                covBox:addItem(covText)
+                mainLayout:addItem(covBox)
 
-                window:setVisible(true, true)
+                -- BONUS
+                local statusBox = api.gui.layout.BoxLayout.new("VERTICAL")
+                local statusTitle = api.gui.comp.TextView.new("--- BONUS DE CROISSANCE ---")
+                local statusText = api.gui.comp.TextView.new("  Bonus actuel : (calcul...)")
+                statusText:setId("telecom_status_text")
+                statusBox:addItem(statusTitle)
+                statusBox:addItem(statusText)
+                mainLayout:addItem(statusBox)
+
+                window:setVisible(true, false)
                 print("[Telecom] Fenetre principale creee et visible")
 
-                -- ----------------------------------------------------------------
-                -- BOUTON TOGGLE — scan de l'arbre UI pour trouver le bon conteneur
-                -- ----------------------------------------------------------------
-                local btnLabel = api.gui.comp.TextView.new("📡 Telecom")
-                local toggleBtn = api.gui.comp.Button.new(btnLabel, true)
+                -- BOUTON TOGGLE DANS LE JEU
+                local toggleBtn = api.gui.comp.Button.new(api.gui.util.Size.new(32, 32), false)
                 toggleBtn:setId("telecom_toggle_btn")
+                toggleBtn:setTooltip("Afficher/Masquer Telecom")
+
+                pcall(function()
+                    toggleBtn:setIcon("ui/icons/mods/telecom_icon.tga")
+                end)
 
                 toggleBtn:onClick(function()
                     pcall(function()
@@ -507,52 +520,21 @@ function data()
                     end)
                 end)
 
-                -- gameInfo est confirmé présent avec getLayout — injection du bouton
+                -- Injection du bouton (peut échouer selon les IDs)
                 local injected = false
                 pcall(function()
                     local gi = api.gui.util.getById("gameInfo")
-                    if not gi then print("[Telecom] gameInfo introuvable"); return end
-
-                    local lay = gi:getLayout()
-                    if not lay then print("[Telecom] getLayout() retourne nil"); return end
-
-                    -- Log le type de layout
-                    local mt = getmetatable(lay)
-                    if mt then
-                        print("[Telecom] Layout type: " .. tostring(mt.__name or mt.name or "inconnu"))
-                    end
-
-                    -- Tentative addItem
-                    local ok2, err2 = pcall(function() lay:addItem(toggleBtn) end)
-                    if ok2 then
-                        injected = true
-                        print("[Telecom] Bouton injecte dans gameInfo via addItem !")
-                    else
-                        print("[Telecom] addItem echoue: " .. tostring(err2))
-
-                        -- Tentative insertItem (certains layouts l'exigent)
-                        local ok3, err3 = pcall(function()
-                            lay:insertItem(toggleBtn, lay:getNumItems())
-                        end)
-                        if ok3 then
-                            injected = true
-                            print("[Telecom] Bouton injecte via insertItem !")
-                        else
-                            print("[Telecom] insertItem echoue aussi: " .. tostring(err3))
+                    if gi then
+                        local lay = gi:getLayout()
+                        if lay then
+                            local ok2, err2 = pcall(function() lay:addItem(toggleBtn) end)
+                            if ok2 then injected = true end
                         end
                     end
                 end)
 
-                if not injected then
-                    print("[Telecom] Bouton non injecte - fenetre disponible sans bouton")
-                end
-
                 _telecom_gui_tick = 0
-                print("[Telecom] guiInit terminee")
             end)
-            if not ok then
-                print("[Telecom] CRASH guiInit: " .. tostring(err))
-            end
         end,
 
         guiUpdate = function()
@@ -560,99 +542,81 @@ function data()
                 _telecom_gui_tick = (_telecom_gui_tick or 0) + 1
                 if _telecom_gui_tick % 120 ~= 0 then return end
                 if not (api and api.gui and api.gui.util) then return end
-                if not (game and game.interface) then return end
 
                 local infraText = api.gui.util.getById("telecom_infra_text")
                 local covText   = api.gui.util.getById("telecom_cov_text")
                 local bonusText = api.gui.util.getById("telecom_status_text")
                 if not infraText and not covText and not bonusText then return end
 
-                -- ============================================================
-                -- VILLES — getTowns() est safe dans le thread UI
-                -- ============================================================
-                local townCount = 0
-                pcall(function()
-                    local ids = game.interface.getTowns()
-                    if ids then townCount = #ids end
-                end)
-
-                -- ============================================================
-                -- CONSTRUCTIONS TELECOM — lecture via l'index de construction
-                -- On essaie uniquement getEntities avec filtre type, PAS forEachEntity
-                -- (forEachEntity + getEntity crash quand on pose des assets)
-                -- ============================================================
                 local wireNodes   = 0
                 local mobileNodes = 0
                 local coveredTowns = 0
-
-                -- Lire les compteurs écrits par le thread moteur via _telecom_ui_data
-                -- Si les VMs partagent un état (certaines versions de TF2), ça marche
-                pcall(function()
-                    if _telecom_ui_data and _telecom_ui_data.ready then
-                        wireNodes    = _telecom_ui_data.wireNodes    or 0
-                        mobileNodes  = _telecom_ui_data.mobileNodes  or 0
-                        coveredTowns = _telecom_ui_data.coveredTowns or 0
-                        townCount    = _telecom_ui_data.townCount     or townCount
-                    end
-                end)
-
-                -- ============================================================
-                -- BONUS — game.config.townDevelopInterval, toujours accessible
-                -- ============================================================
+                local townCount = 0
                 local interval = 60
+                local bonusPct = 0
+
+                -- Lecture des données depuis le pont game.config
+                local data_found = false
                 pcall(function()
-                    if game.config and game.config.townDevelopInterval then
-                        interval = game.config.townDevelopInterval
+                    if game and game.config and game.config.telecom_data and game.config.telecom_data.ready then
+                        local d = game.config.telecom_data
+                        wireNodes    = d.wireNodes or 0
+                        mobileNodes  = d.mobileNodes or 0
+                        coveredTowns = d.coveredTowns or 0
+                        townCount    = d.townCount or 0
+                        interval     = d.interval or 60
+                        bonusPct     = d.bonusPct or 0
+                        data_found   = true
                     end
                 end)
-                local bonusPct = 0
-                if interval < 60 then
-                    bonusPct = math.floor(60.0 * (1.0 - (interval / 60.0)) + 0.5)
+
+                -- Fallback : si game.config est isolé, on calcule juste les bonus via config standard
+                if not data_found then
+                    pcall(function()
+                        if game and game.interface and game.interface.getTowns then
+                            local ids = game.interface.getTowns()
+                            if ids then townCount = #ids end
+                        end
+                        if game and game.config and game.config.townDevelopInterval then
+                            interval = game.config.townDevelopInterval
+                        end
+                    end)
+                    if interval < 60 then
+                        bonusPct = math.floor(60.0 * (1.0 - (interval / 60.0)) + 0.5)
+                    end
                 end
+
                 local coverPct = townCount > 0 and math.floor(coveredTowns * 100 / townCount) or 0
 
                 -- ============================================================
                 -- AFFICHAGE
                 -- ============================================================
                 if infraText then
-                    if wireNodes > 0 or mobileNodes > 0 then
+                    if data_found then
                         infraText:setText(
                             "  Filaire  : " .. wireNodes .. " noeud(s)\n" ..
                             "  Mobile   : " .. mobileNodes .. " antenne(s)"
                         )
                     else
-                        -- Essayer de lire depuis getEntities de manière minimale et safe
-                        local w, m = 0, 0
-                        pcall(function()
-                            local ids = game.interface.getEntities({type="CONSTRUCTION"}) or {}
-                            for _, eid in ipairs(ids) do
-                                pcall(function()
-                                    local e = game.interface.getEntity(eid)
-                                    if e and e.fileName and e.fileName:find("telecom") then
-                                        if e.fileName:find("fixed_line") or e.fileName:find("fiber") then
-                                            w = w + 1
-                                        else
-                                            m = m + 1
-                                        end
-                                    end
-                                end)
-                            end
-                        end)
                         infraText:setText(
-                            "  Filaire  : " .. w .. " noeud(s)\n" ..
-                            "  Mobile   : " .. m .. " antenne(s)"
+                            "  Filaire  : (isole)\n" ..
+                            "  Mobile   : (isole)"
                         )
                     end
                 end
 
                 if covText then
-                    local bonusStr = bonusPct > 0
-                        and ("+" .. bonusPct .. "% de croissance actif")
-                        or "Placez des infrastructures"
-                    covText:setText(
-                        "  Villes : " .. townCount .. "  |  Taux : " .. coverPct .. "%\n" ..
-                        "  " .. bonusStr
-                    )
+                    if data_found then
+                        covText:setText(
+                            "  Villes couvertes : " .. coveredTowns .. " / " .. townCount .. "\n" ..
+                            "  Taux             : " .. coverPct .. "%"
+                        )
+                    else
+                        covText:setText(
+                            "  Villes trouvees : " .. townCount .. " (donnees isolees)\n" ..
+                            "  Veuillez consulter le statut du bonus."
+                        )
+                    end
                 end
 
                 if bonusText then
