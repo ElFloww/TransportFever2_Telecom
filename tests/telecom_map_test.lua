@@ -229,9 +229,15 @@ local function fakeApi(options)
         for i, item in ipairs(self.items) do if item == child then return i - 1 end end
         return -1
     end
-    function absoluteMethods:removeItem(index)
-        check(math.type(index) == "integer" and index >= 0 and index < #self.items,
-            "AbsoluteLayout.removeItem expects a zero-based index")
+    function absoluteMethods:removeItem(child)
+        check(type(child) == "table" and child.serial and not child.destroyed,
+            "ILayout.removeItem expects a live layout item, not an index")
+        check(child.parent == self, "item is not owned by this layout")
+        local index = self:getIndex(child)
+        if options.removeErrorAt and f.stats.destroyed == options.removeErrorAt then
+            options.removeErrorAt = nil
+            error("injected remove failure")
+        end
         write(self)
         local item = table.remove(self.items, index + 1)
         item.parent = nil
@@ -290,12 +296,15 @@ local function fakeApi(options)
         check(type(callback) == "function", "combo callback must be callable")
         write(self); self.callback = callback
     end
-    function methods.ComboBox:clear()
+    function methods.ComboBox:clear(emit)
+        check(type(emit) == "boolean", "ComboBox.clear requires an emit boolean")
+        if options.clearError then error("injected clear failure") end
         write(self); self.items = {}; self.index = -1; self.rebuilds = self.rebuilds + 1
-        if self.callback then self.callback(-1) end
+        if emit and self.callback then self.callback(-1) end
     end
     function methods.ComboBox:addItem(text)
         check(type(text) == "string", "ComboBox.addItem expects string")
+        if options.addErrorAt and #self.items == options.addErrorAt then error("injected add failure") end
         write(self); self.items[#self.items + 1] = text
         if self.index == -1 then
             self.index = 0
@@ -303,6 +312,7 @@ local function fakeApi(options)
         end
     end
     function methods.ComboBox:getCurrentIndex() return self.index end
+    function methods.ComboBox:getNumItems() return #self.items end
     -- Current integration contract; the older web reference omits this setter.
     -- A native TF2 smoke test is still needed to validate the binding itself.
     function methods.ComboBox:setSelected(index, emit)
@@ -510,7 +520,7 @@ local function withApi(options, fn)
     assert(ok, err)
 end
 
-test("mock rejects unsupported signatures and enforces zero-based layout ownership", function()
+test("mock rejects unsupported signatures and enforces layout item ownership", function()
     local f = fakeApi()
     local gui = f.api.gui
     local layout = gui.layout.AbsoluteLayout.new()
@@ -523,9 +533,10 @@ test("mock rejects unsupported signatures and enforces zero-based layout ownersh
     rejects(function() layout:addItem(child, 0, 0) end)
     layout:addItem(child, gui.util.Rect.new(0, 0, 720, 300))
     assert(layout:getIndex(child) == 0)
+    rejects(function() layout:removeItem(0) end)
     rejects(function() layout:removeItem(1) end)
     rejects(function() child:destroy() end)
-    assert(layout:removeItem(0) == child and layout:getIndex(child) == -1)
+    assert(layout:removeItem(child) == child and layout:getIndex(child) == -1)
     child:destroy(); assert(child.destroyed)
     local line = gui.comp.LineRenderView.new()
     assert(line.addPoint == nil and line.setLineWidth == nil)
@@ -547,6 +558,22 @@ test("ScrollArea constructor requires content and a component name", function()
     assert(not pcall(gui.comp.ScrollArea.new, content, 123), "numeric component name must be rejected")
     local scroll = gui.comp.ScrollArea.new(content, "telecom_map_details")
     assert(scroll.child == content and scroll.name == "telecom_map_details")
+end)
+
+test("ComboBox clear requires an explicit boolean and can suppress its callback", function()
+    local f = fakeApi()
+    local combo = f.api.gui.comp.ComboBox.new()
+    combo:addItem("Placeholder")
+    assert(not pcall(function() combo:clear() end), "missing emit flag must be rejected")
+    assert(not pcall(function() combo:clear(0) end), "numeric emit flag must be rejected")
+    local events = 0
+    combo:onIndexChanged(function() events = events + 1 end)
+    combo:clear(false)
+    assert(combo:getNumItems() == 0 and events == 0)
+    combo:addItem("Placeholder")
+    events = 0
+    combo:clear(true)
+    assert(combo:getNumItems() == 0 and events == 1)
 end)
 
 local function snapshot(revision, change)
@@ -731,6 +758,72 @@ test("strict GUI construction, style names and real computed snapshot", function
         assert(not f.buttons["Voir en jeu"].enabled and not f.buttons["Centrer carte"].enabled)
         assert(#f.logs == 0)
         for _, item in ipairs(plane(f, 4).items) do assert(item.name == "TelecomMapLabel") end
+    end)
+end)
+
+test("failed initial dropdown clear is retried at the same revision without selecting an empty list", function()
+    withApi({ clearError = true }, function(f)
+        local ui, state = open(f), snapshot()
+        for attempt = 1, 2 do
+            local ok, err = pcall(function() ui:update(state) end)
+            assert(not ok); contains(err, "injected clear failure")
+            assert(f.dropdown:getNumItems() == 0 and not f.dropdown.enabled)
+            assert(f.dropdown.index == -1)
+        end
+        f.options.clearError = nil
+        ui:update(state)
+        assert(f.dropdown.enabled and f.dropdown:getNumItems() == 7 and f.dropdown.index == 0)
+        f:choose("Copper (#1)"); ui:update(state)
+        contains(f.details.text, "Copper  (#1)")
+    end)
+end)
+
+test("partial dropdown rebuild resets its callback guard and preserves selection on retry", function()
+    withApi({}, function(f)
+        local ui, state = open(f), snapshot()
+        ui:update(state)
+        f:choose("Copper (#1)"); ui:update(state)
+        state = snapshot(2, function(input) input.nodes[1].name = "Renamed" end)
+        f.options.addErrorAt = 2
+        local ok, err = pcall(function() ui:update(state) end)
+        assert(not ok); contains(err, "injected add failure")
+        assert(f.dropdown:getNumItems() == 2 and not f.dropdown.enabled)
+        f.dropdown.callback(0)
+        f.options.addErrorAt = nil
+        ui:update(state)
+        contains(f.details.text, "Renamed  (#1)")
+        assert(f.dropdown.enabled and f.dropdown:getNumItems() == 7)
+        f:choose("East (#12)"); ui:update(state)
+        contains(f.details.text, "East  (#12)")
+    end)
+end)
+
+test("selection never reaches the native setter with an empty item list", function()
+    withApi({}, function(f)
+        local ui, state = open(f), snapshot()
+        ui:update(state)
+        f:choose("East (#12)"); ui:update(state)
+        f.dropdown:clear(false)
+        ui.dirty = true
+        ui:update(state)
+        assert(f.dropdown.index == -1)
+        ui:update(snapshot(2))
+        assert(f.dropdown:getNumItems() == 7)
+        contains(f.dropdown.items[f.dropdown.index + 1], "East (#12)")
+    end)
+end)
+
+test("failed label cleanup retries without removing already destroyed components", function()
+    withApi({}, function(f)
+        local ui, state = open(f), snapshot()
+        ui:update(state)
+        f.options.removeErrorAt = f.stats.destroyed + 1
+        ui.dirty = true
+        local ok, err = pcall(function() ui:update(state) end)
+        assert(not ok); contains(err, "injected remove failure")
+        assert(ui.dirty)
+        ui:update(state)
+        assert(not ui.dirty and #plane(f, 4).items > 0)
     end)
 end)
 

@@ -24,6 +24,10 @@ function data()
         end
     end
 
+    local function guiError(err)
+        return debug.traceback("Interface telecom: " .. tostring(err), 2)
+    end
+
     local function refresh()
         lastRefresh = os.time()
         -- One transaction boundary: no partial snapshot/config on collection failure.
@@ -70,10 +74,10 @@ function data()
         end,
 
         guiInit = function()
-            local ok, err = pcall(function()
+            local ok, err = xpcall(function()
                 local map = require "telecom_map"
                 ui = map.new(function() refreshRequested = true end)
-            end)
+            end, guiError)
             if not ok then
                 report(err)
                 local message = api.gui.comp.TextView.new("Telecom: " .. tostring(err))
@@ -92,7 +96,7 @@ function data()
                 refreshRequested = false
             end
             if ui then
-                local ok, err = pcall(function() ui:update(state) end)
+                local ok, err = xpcall(function() ui:update(state) end, guiError)
                 if not ok then report(err); ui:showError(err) end
             end
         end,

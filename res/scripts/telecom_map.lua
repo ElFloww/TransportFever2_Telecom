@@ -59,10 +59,12 @@ function M.new(requestRefresh)
     local details = comp.TextView.new(_("Selectionnez un equipement ou une ville sur la carte."))
     local dropdown = comp.ComboBox.new()
     dropdown:setMaximumSize(util.Size.new(380, 32))
+    dropdown:setEnabled(false)
     local rebuildingDropdown = false
+    local dropdownReady = false
     local selected, selectedType, drag, suppressClick, cameraError
     local bg, bgPending, bgCompleted, bgKey, dropdownKey
-    local snapshot, view
+    local snapshot, appliedRevision, view
     local mouseListener
 
     local function button(row, text, callback)
@@ -198,7 +200,7 @@ function M.new(requestRefresh)
     end
 
     dropdown:onIndexChanged(function(index)
-        if rebuildingDropdown then return end
+        if rebuildingDropdown or not dropdownReady then return end
         local item = dropdownItems[index + 1]
         selection(item and item.item, item and item.kind)
     end)
@@ -269,11 +271,11 @@ function M.new(requestRefresh)
 
     local labels = {}
     local function clearLabels()
-        for _, label in ipairs(labels) do
-            local item = planes.labels:removeItem(planes.labels:getIndex(label))
+        while #labels > 0 do
+            local item = planes.labels:removeItem(labels[#labels])
+            labels[#labels] = nil
             item:destroy()
         end
-        labels = {}
     end
     local function label(text, x, y)
         if x < 0 or x + 8 > W or y < 0 or y + 16 > H or #labels >= 60 then return end
@@ -398,7 +400,6 @@ function M.new(requestRefresh)
         scaleLine(12 + length, H - 16, 12 + length, H - 8)
         label(string.format("%g m", metres), 12, H - 34)
         label("N", W - 24, 4)
-        self.dirty = false
     end
 
     local function updateDetails()
@@ -410,7 +411,10 @@ function M.new(requestRefresh)
             end
         end
         -- ComboBox uses setSelected(index, emit), not setCurrentIndex.
-        dropdown:setSelected(index, false)
+        -- An out-of-range index aborts the native process; pcall cannot catch it.
+        if dropdownReady and index >= 0 and index < dropdown:getNumItems() then
+            dropdown:setSelected(index, false)
+        end
         locate:setEnabled(item ~= nil)
         center:setEnabled(item ~= nil)
         if not item then
@@ -459,7 +463,7 @@ function M.new(requestRefresh)
             return
         end
         summary:setTooltip(state.error or "")
-        if not snapshot or snapshot.revision ~= state.revision then
+        if appliedRevision ~= state.revision then
             snapshot = state
             self.dirty = true
             if selected and not getSelected() then selection(nil, nil) end
@@ -478,14 +482,21 @@ function M.new(requestRefresh)
                 end
             end
             local key = table.concat(keys, "\n")
-            dropdownItems = choices
-            if key ~= dropdownKey then
+            if key ~= dropdownKey or dropdown:getNumItems() ~= #choices then
+                dropdownReady = false
+                dropdown:setEnabled(false)
                 rebuildingDropdown = true
-                dropdown:clear()
-                for _, choice in ipairs(choices) do dropdown:addItem(choice.label) end
+                local ok, err = pcall(function()
+                    dropdown:clear(false)
+                    for _, choice in ipairs(choices) do dropdown:addItem(choice.label) end
+                end)
                 rebuildingDropdown = false
+                if not ok then error("Liste telecom: " .. tostring(err), 0) end
                 dropdownKey = key
+                dropdownReady = true
+                dropdown:setEnabled(true)
             end
+            dropdownItems = choices
         end
         local bounds = snapshot.bounds
         local key = table.concat({ bounds.minX, bounds.minY, bounds.maxX, bounds.maxY }, ":")
@@ -498,7 +509,11 @@ function M.new(requestRefresh)
         if bgPending and bgPending:step() then
             bg, bgPending, bgCompleted, self.dirty = bgPending, nil, os.time(), true
         end
-        if self.dirty then render(); updateDetails() end
+        if self.dirty then
+            render()
+            updateDetails()
+            self.dirty = false
+        end
         local warnings = bg and bg.warnings or {}
         local messages = { string.format(_("Zoom x%.1f | Portee circulaire theorique"), self.zoom) }
         if snapshot.boundsEstimated then messages[#messages + 1] = _("Limites estimees") end
@@ -509,6 +524,8 @@ function M.new(requestRefresh)
             or bgPending and _("Preparation du fond de carte...") or ""
         status:setText(table.concat(messages, " | ") .. "\n" .. warning)
         status:setTooltip(state.error or cameraError or table.concat(warnings, "\n"))
+        -- Retry the same revision if any GUI operation failed partway through.
+        appliedRevision = state.revision
     end
 
     return self
