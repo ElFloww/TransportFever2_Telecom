@@ -1,233 +1,91 @@
-# Réseaux de Communication
+# Reseaux de Communication (Transport Fever 2)
 
-Mod pour **Transport Fever 2** ajoutant des NRA, NRO et antennes mobiles,
-avec une carte graphique de leurs portées et un calcul de bonus de croissance.
+Mod telecom avec NRA, NRO et antennes multi-technologies, plus export de couverture en carte HTML autonome.
 
-## Carte Télécom
+## Utilisation
 
-Le bouton **Telecom**, dans la barre d'informations du jeu, ouvre la carte.
-Elle remplace l'ancien radar textuel. C'est une fenêtre intégrée au jeu,
-**pas un nouveau calque du sélecteur natif de Transport Fever 2**.
+1. Activer le mod dans la sauvegarde.
+2. Placer les infrastructures via **Construction > Divers/Misc**.
+3. Ouvrir le bouton **Telecom** dans la barre du jeu.
+4. Cliquer **Exporter HTML** puis ouvrir le fichier genere.
 
-| Élément | Marqueur | Couverture |
-|---|---|---|
-| NRA | Carré bleu | Cercle de 1 500 m |
-| NRO | Triangle violet | Cercle de 3 000 m |
-| Antenne | Rond orange, gris si inactive | Un cercle par technologie active |
-| Ville | Croix grise ou verte | Verte si son centre est couvert |
-
-- Coordonnées réelles, limites de la partie et échelle uniforme en mètres.
-- Fond simplifié : contours d'altitude, eau échantillonnée, routes et rails.
-- Filtres par infrastructure et par technologie mobile, avec légende colorée.
-- Boutons **+ / -** pour zoomer, glisser avec le bouton gauche pour déplacer.
-- **Carte entière** rétablit la vue générale.
-- Clic sur un marqueur ou sélection dans la liste pour afficher les détails.
-- **Couverture : sélection** limite les cercles à l'équipement sélectionné.
-- **Hachures** matérialise l'intérieur des zones de couverture.
-- **Centrer carte** rapproche la vue de l'élément sélectionné ; **Voir en jeu**
-  déplace la caméra principale vers cet élément.
-- **Actualiser** demande un nouveau calcul et reconstruit le fond géographique.
-
-Une antenne peut proposer plusieurs technologies et plusieurs portées. Les
-technologies partageant le même rayon ont des contours superposés : utiliser
-leurs filtres pour les distinguer. Désactiver une technologie dans la carte
-ne désactive pas l'équipement et ne modifie pas son bonus.
-
-Les croix vertes et les statistiques décrivent **la couverture globale calculée**,
-indépendamment des filtres visuels. Le panneau de détails indique les villes
-couvertes par chaque service et les contributions reçues par chaque ville.
-La liste permet de sélectionner aussi les marqueurs superposés ou hors écran.
-
-### Performances Et Limites
-
-Le fond est calculé progressivement, puis mis en cache. Les constructions et
-démolitions invalident ce cache. Un renouvellement toutes les minutes prend aussi
-en compte les routes créées automatiquement par les villes. Fermer la fenêtre
-suspend le travail graphique. Un index spatial limite le tracé routier à la vue.
-Les segments sont regroupés par couleur, avec plusieurs petits renderers plutôt
-qu'un unique très gros tampon. Sur une carte dense, le message **Affichage limité**
-signale une simplification : zoomer, filtrer ou afficher seulement la sélection.
-
-Le fond est une représentation vectorielle approximative, pas une capture du
-terrain. L'eau est déduite du niveau d'eau et d'un échantillonnage de l'altitude ;
-les petits cours d'eau peuvent manquer. Les terrassements nécessitent au besoin
-**Actualiser**. Une indisponibilité du fond ne supprime pas les données télécom.
-Si les dimensions du terrain sont indisponibles, les limites sont estimées à
-partir des villes et des disques de portée et signalées comme telles.
-
-**La couverture reste théorique** : disque en deux dimensions, sans obstacles,
-relief, capacité, réseau cuivre/fibre physique ni couverture bâtiment par bâtiment.
-Une ville est considérée couverte si son point de référence est dans un disque.
-
-## Carte HTML Autonome
-
-Le bouton **Exporter HTML** ajoute une seconde visualisation, inspirée de
-[Cartograph / Tpf2MapExporter](https://github.com/AaditJha/Tpf2MapExporter).
-Elle est recommandée pour consulter la carte entière sans les budgets de tracé
-de l'aperçu natif. L'aperçu en jeu et ses fonctions restent disponibles.
-
-1. Ouvrir **Telecom**, puis cliquer sur **Exporter HTML**.
-2. Attendre la fin de la progression. Le chemin du fichier est affiché dans la
-   fenêtre, sélectionnable et disponible dans son info-bulle.
-3. Ouvrir ce fichier `.html` dans un navigateur.
-
-Les exports sont créés dans **`map_exports/` à la racine du mod**, sous des noms
-horodatés `telecom_map_*.html`. Le répertoire est fourni avec le mod et doit être
-accessible en écriture. Une erreur d'accès est signalée, sans annoncer un faux
-succès. Un dossier existant personnalisé peut être passé au module d'export via
-l'option `outputDirectory`.
-
-### Contenu Et Interactions
-
-- Un document HTML autonome avec SVG intégré, sans serveur, CDN ni requête réseau.
-- Relief ombré et eau dans une image BMP embarquée, proportionnelle à la carte.
-- Routes et rails en véritables courbes cubiques, issues des tangentes du moteur.
-- NRA carrés, NRO triangulaires, antennes rondes et équipements inactifs gris.
-- Surfaces de couverture translucides à leur rayon réel, avec réglage d'opacité.
-- Filtres par équipement, technologie et couche géographique.
-- Zoom à la molette ou avec les boutons, déplacement à la souris ou au toucher.
-- Sélection sur la carte ou dans la liste, informations par service et villes
-  couvertes, mode « équipement sélectionné uniquement ».
-- Interface adaptée aux écrans étroits et légende des distances en mètres/km.
-
-L'export contient toutes les infrastructures et technologies du snapshot, même
-si elles sont masquées dans l'aperçu en jeu. Les filtres du navigateur sont
-indépendants. Les noms provenant de la sauvegarde sont échappés, pas exécutés.
-
-### Fonctionnement Et Limites
-
-La collecte, l'encodage et l'écriture sont découpés en lots entre les mises à jour
-de l'interface. **Annuler export** arrête le travail et tente de supprimer le
-fichier partiel. Fermer la fenêtre laisse l'export continuer. Le fichier final
-n'est publié qu'après écriture, fermeture et renommage réussis ; les collisions
-de noms connues sont évitées. Les erreurs de nettoyage restent signalées.
-
-La carte est un **instantané hors ligne**, pas un calque du sélecteur natif et
-pas une connexion en direct à la partie. Le snapshot télécom est figé au départ ;
-le terrain et les routes sont lus progressivement. Éviter de modifier la carte
-pendant l'export pour conserver une représentation cohérente. Exporter de nouveau
-après modification de la partie. Les données télécom en erreur ne sont pas exportées.
-
-Le relief est échantillonné, pas photographique : le bouton utilise au maximum
-512 pixels sur le grand axe du fond, tandis que les routes et couvertures restent
-vectorielles. Une couche géographique indisponible produit un avertissement visible
-dans le document. La mémoire et les capacités du navigateur restent des limites
-sur les très grosses parties. L'accès aux fichiers et les API terrain nécessitent
-encore une validation dans Transport Fever 2.
+Le fichier est ecrit dans `map_exports/` a la racine du mod (`telecom_map_*.html`).
 
 ## Infrastructures
 
-Constructions disponibles dans **Construction > Divers/Misc** :
+| Element | Portee | Bonus |
+|---|---:|---:|
+| NRA (cuivre, 1974+) | 1500 m | +3 % |
+| NRO (fibre, 2007+) | 3000 m | +8 % |
+| Antenne (1992+) | selon techno | selon techno |
 
-| Construction | Année | Portée | Contribution |
-|---|---|---|---|
-| NRA cuivre | 1974 | 1 500 m | +3 % |
-| NRO fibre FTTH | 2007 | 3 000 m | +8 % |
-| Antenne multitechnologie | 1992 | Selon technologie | Selon technologie |
+Technologies antenne:
 
-| Technologie | Année | Portée | Contribution |
-|---|---|---|---|
-| 2G | 1992 | 2 000 m | +2 % |
-| 3G | 2004 | 1 500 m | +3 % |
-| 3G+ | 2006 | 1 500 m | +4 % |
-| 4G | 2012 | 1 200 m | +5 % |
-| 4G+ | 2014 | 1 200 m | +6 % |
+| Technologie | Annee | Portee | Bonus |
+|---|---:|---:|---:|
+| 2G | 1992 | 2000 m | +2 % |
+| 3G | 2004 | 1500 m | +3 % |
+| 3G+ | 2006 | 1500 m | +4 % |
+| 4G | 2012 | 1200 m | +5 % |
+| 4G+ | 2014 | 1200 m | +6 % |
 | 5G | 2020 | 800 m | +8 % |
 | 5G+ | 2023 | 500 m | +10 % |
 
-Les technologies sont désactivées par défaut. Une technologie configurée avant
-son année de disponibilité reste inactive jusqu'à cette année ; son état est
-indiqué dans les détails. Une antenne inactive reste visible sur la carte.
+## Calcul de couverture
 
-## Calcul Et Synchronisation
+- meilleure contribution fixe retenue par ville
+- contributions mobiles additionnees
+- synergie x1.2 si fixe + mobile
+- moyenne globale plafonnee a +60 %
+- application historique conservee:
+  `game.config.townDevelopInterval = floor(60 * (1 - bonusGlobal))`
 
-Pour chaque ville, le calcul conserve la meilleure contribution fixe et
-additionne les contributions mobiles, y compris celles d'antennes différentes.
-Le cumul est multiplié par 1,2 si fixe et mobile sont présents. La moyenne sur
-toutes les villes, couvertes ou non, est plafonnée à 60 %.
+La couverture reste theorique (disques 2D), sans propagation radio avancee ni obstacle batiment par batiment.
 
-Le comportement historique d'application est conservé :
-`game.config.townDevelopInterval = floor(60 * (1 - bonusGlobal))`.
-Il s'agit d'un réglage **global**, pas d'une modification locale de chaque ville.
-Son effet dynamique sur la croissance doit être confirmé en jeu ; la carte
-affiche donc un **bonus global calculé**, pas une croissance mesurée.
+## Export HTML
 
-La simulation produit un snapshot unique avec positions, services, liens de
-couverture et statistiques. `save/load` transmet ce snapshot à l'interface et le
-conserve dans la sauvegarde. Premier calcul immédiat, puis toutes les cinq
-secondes réelles lorsque le moteur exécute les callbacks, ainsi que sur demande.
-En pause, une demande peut attendre la reprise du moteur. L'interface ne recalcule
-pas une couverture différente et ne modifie pas la simulation.
+Carte autonome (sans CDN, sans requetes reseau) avec:
 
-Une erreur de collecte conserve les dernières données connues, avec un message
-explicite ; avant le premier calcul réussi, aucun faux zéro n'est affiché.
+- relief/eau embarques (BMP base64)
+- routes/rails en courbes vectorielles
+- marqueurs et zones de couverture
+- filtres, selection, zoom et deplacement
 
-## Installation Et Compatibilité
+L'export est un instantane: refaire un export apres modification de la partie.
 
-1. Installer le dossier du mod dans le répertoire `mods` de Transport Fever 2.
-2. Activer le mod lors de la création ou du chargement d'une partie.
-3. Placer des infrastructures et ouvrir **Telecom** dans la barre du jeu.
+## Compatibilite et migration
 
-Les chemins des trois constructions existantes n'ont pas changé. Les
-sauvegardes sans snapshot télécom sont initialisées au premier calcul.
-Les mods modifiant également `game.config.townDevelopInterval` peuvent entrer
-en conflit avec le réglage de croissance conservé par ce mod.
+- l'ancien apercu natif et ses caches ont ete retires
+- les anciens snapshots UI obsoletes sont ignores au chargement
+- les donnees telecom utiles sont recalculees automatiquement par le moteur
 
-Les `.mdl` restent des **placeholders sans géométrie 3D**. Cette mise à jour
-dessine les marqueurs sur la carte mais ne fournit pas de nouveaux modèles
-d'antennes ou de bâtiments pour la scène principale.
+## Fichiers principaux
 
-## Développement
-
-| Fichier | Rôle |
+| Fichier | Role |
 |---|---|
-| `res/config/game_script/telecom_growth.lua` | Cycle moteur/GUI, synchronisation et application du bonus |
-| `res/scripts/telecom_network.lua` | Catalogue, collecte et calcul pur de la couverture |
-| `res/scripts/telecom_map.lua` | Interface, filtres, sélection et tracé vectoriel |
-| `res/scripts/telecom_map_geometry.lua` | Projection, découpage des segments et formes |
-| `res/scripts/telecom_map_background.lua` | Fond géographique progressif |
-| `res/scripts/telecom_export.lua` | Export progressif, terrain BMP embarqué, courbes SVG et publication du fichier |
-| `res/scripts/telecom_export_view.lua` | Carte HTML/SVG autonome, filtres et interactions navigateur |
-| `res/config/style_sheet/telecom.lua` | Styles de la carte |
-| `strings.lua` | Traductions françaises et anglaises |
+| `res/config/game_script/telecom_growth.lua` | cycle moteur/GUI, sauvegarde, rafraichissement |
+| `res/scripts/telecom_network.lua` | collecte et calcul de couverture |
+| `res/scripts/telecom_panel.lua` | panneau d'export dans le jeu |
+| `res/scripts/telecom_export.lua` | export progressif, fichiers, erreurs IO |
+| `res/scripts/telecom_export_view.lua` | rendu HTML/SVG de la carte |
+| `strings.lua` | localisations FR/EN |
 
-Tests autonomes depuis la racine, avec Lua 5.3 :
+## Tests
 
 ```sh
 lua tests/telecom_network_test.lua
-lua tests/telecom_map_test.lua
 lua tests/telecom_export_test.lua
 lua tests/telecom_export_view_test.lua
 ```
 
-Un argument de dossier temporaire existant à `telecom_export_view_test.lua`
-génère aussi `telecom-export-test.html` avec l'exporteur réel et un moteur simulé.
-Le test navigateur s'exécute avec Node 22 et Chrome :
+Test navigateur (optionnel):
 
 ```sh
-node --experimental-websocket tests/telecom_export_browser_test.mjs /chemin/temporaire/telecom-export-test.html
+node --experimental-websocket tests/telecom_export_browser_test.mjs /chemin/vers/telecom-export-test.html
 ```
 
-`CHROME_PATH` permet de définir l'exécutable Chrome. Le test utilise un profil
-temporaire indépendant, le supprime en fin d'exécution et produit deux captures
-desktop/mobile dans le dossier de la fixture. Il vérifie aussi le décodage du BMP,
-les filtres, la sélection, le déplacement et l'absence de requêtes réseau.
+## Credits
 
-Les tests vérifient les calculs et utilisent une API simulée pour l'interface.
-Ils ne remplacent pas une validation du rendu natif dans Transport Fever 2.
-Vérifier en jeu : ouverture/fermeture, échelle UI/Retina, déplacements de fenêtre,
-zoom et sélection, construction/démolition, passage d'année, pause/reprise,
-sauvegarde/rechargement et grande carte avec de nombreuses infrastructures.
-Les diagnostics sont préfixés `[Telecom]` ou `[Telecom map]` dans le journal du jeu.
-
-Références : [API GUI](https://transportfever2.com/wiki/api/modules/api.gui.html),
-[terrain](https://transportfever2.com/wiki/api/modules/api.type.html#Terrain),
-[synchronisation des scripts](https://wiki.transportfever2.com/doku.php?id=modding:gamescripts).
-
-## Crédits
-
-- Concept et design : @elfloww.
-- Implémentation initiale v0.2 : Antigravity / Google DeepMind.
-- Inspiration de l'export autonome : Cartograph / Tpf2MapExporter, Aadit Jha
-  (MIT, commit `9b0f6cfacab0ece5b5043b119307a4043452620f`). L'exporteur télécom
-  et son interface sont une implémentation indépendante, sans copie de ses glyphes.
+- Concept: @elfloww
+- Base d'impl. initiale: Antigravity / Google DeepMind
+- Inspiration export autonome: Cartograph / Tpf2MapExporter (Aadit Jha, MIT)

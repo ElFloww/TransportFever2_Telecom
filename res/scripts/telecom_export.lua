@@ -1,6 +1,7 @@
 -- Standalone export, implemented independently (no Cartograph source copied).
 -- Call step() on the GUI thread, never in a coroutine. Progress is in [0, 1].
--- Only telecom_export_view is required; io/os are captured per job for testing.
+-- Lua 5.1/5.2/5.3 standard libraries; only telecom_export_view is required.
+-- io/os are captured per job; tests/telecom_export_test.lua uses a stub renderer.
 local exporter = {}
 local source = debug.getinfo(1, "S").source:gsub("\\", "/")
 local root = source:match("^@(.+)/res/scripts/telecom_export%.lua$")
@@ -17,8 +18,9 @@ local function checked(n, label)
     return n
 end
 
--- Empty proxies make existing fields read-only too, including nested arrays.
-local function freeze(value, active, copies)
+-- Private plain tables isolate caller mutations without version-specific proxies.
+-- Only the job closure and trusted renderer receive the copy; it is not read-only.
+local function deepCopy(value, active, copies)
     local kind = type(value)
     if kind == "number" then return checked(value, "snapshot number") end
     if kind ~= "table" then
@@ -27,19 +29,23 @@ local function freeze(value, active, copies)
     end
     assert(not active[value], "snapshot contains a cycle")
     if copies[value] then return copies[value] end
-    local data, proxy = {}, {}
-    active[value], copies[value] = true, proxy
+    local data = {}
+    active[value], copies[value] = true, data
     for key, item in next, value do
         assert(type(key) == "string" or type(key) == "number", "invalid snapshot key")
-        data[freeze(key, active, copies)] = freeze(item, active, copies)
+        data[deepCopy(key, active, copies)] = deepCopy(item, active, copies)
     end
     active[value] = nil
-    return setmetatable(proxy, {
-        __index = data, __len = function() return #data end,
-        __pairs = function() return next, data, nil end,
-        __newindex = function() error("snapshot is read-only", 2) end,
-        __metatable = false,
-    })
+    return data
+end
+
+local function littleEndian(n, size)
+    local bytes = {}
+    for i = 1, size do
+        bytes[i] = string.char(n % 256)
+        n = math.floor(n / 256)
+    end
+    return table.concat(bytes)
 end
 
 local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
@@ -48,7 +54,7 @@ local function base64(bytes)
     for i = 1, #bytes, 3 do
         local a, b, c = bytes:byte(i, i + 2)
         local n = a * 65536 + (b or 0) * 256 + (c or 0)
-        local x, y, z, w = n // 262144 % 64, n // 4096 % 64, n // 64 % 64, n % 64
+        local x, y, z, w = math.floor(n / 262144) % 64, math.floor(n / 4096) % 64, math.floor(n / 64) % 64, n % 64
         out[#out + 1] = alphabet:sub(x + 1, x + 1) .. alphabet:sub(y + 1, y + 1)
             .. (b and alphabet:sub(z + 1, z + 1) or "=")
             .. (c and alphabet:sub(w + 1, w + 1) or "=")
@@ -83,7 +89,7 @@ end
 function exporter.new(snapshot, options)
     local job = { done = false, error = nil, path = nil, progress = 0, phase = "open", warnings = {} }
     local open, remove, rename, date, ioType = io.open, os.remove, os.rename, os.date, io.type
-    local handle, partial, target, directory, stamp, view, frozen, opts, bounds, spanX, spanY
+    local handle, partial, target, directory, stamp, view, copied, opts, bounds, spanX, spanY
     local pending, pendingOffset, heights, width, height, dx, dy, water, cell, row, carry
     local ids, edgeIndex, paths, pathIndex, edgeWarning
 
@@ -153,9 +159,9 @@ function exporter.new(snapshot, options)
     local ok, err = pcall(function()
         assert(type(snapshot) == "table", "snapshot required")
         assert(not snapshot.error, "snapshot.error: " .. tostring(snapshot.error))
-        frozen = freeze(snapshot, {}, {})
-        assert(finite(frozen.year) and frozen.year > 0 and frozen.year % 1 == 0, "invalid snapshot year")
-        bounds = assert(frozen.bounds, "snapshot bounds required")
+        copied = deepCopy(snapshot, {}, {})
+        assert(finite(copied.year) and copied.year > 0 and copied.year % 1 == 0, "invalid snapshot year")
+        bounds = assert(copied.bounds, "snapshot bounds required")
         spanX = checked(bounds.maxX, "maxX") - checked(bounds.minX, "minX")
         spanY = checked(bounds.maxY, "maxY") - checked(bounds.minY, "minY")
         assert(finite(spanX) and finite(spanY) and spanX > 0 and spanY > 0, "invalid snapshot bounds")
@@ -216,7 +222,7 @@ function exporter.new(snapshot, options)
                 handle, message = open(target .. ".part", "wb")
                 assert(handle, "open: " .. tostring(message))
                 partial = target .. ".part"
-                queue(view.prefix(frozen))
+                queue(view.prefix(copied))
                 advance("terrain-init", 0.02)
             elseif self.phase == "terrain-init" then
                 if not opts.terrain then
@@ -241,7 +247,7 @@ function exporter.new(snapshot, options)
                 local terrainOK, terrainError = pcall(function()
                     for _ = 1, PROBES do
                         if cell == width * height then break end
-                        local col, y = cell % width, cell // width
+                        local col, y = cell % width, math.floor(cell / width)
                         -- BMP is bottom-up: sample south to north, at pixel centres.
                         local position = api.type.Vec2f.new(bounds.minX + (col + 0.5) * dx,
                             bounds.minY + (y + 0.5) * dy)
@@ -264,9 +270,15 @@ function exporter.new(snapshot, options)
                 queue("<g id='terrain'><image x='" .. number(bounds.minX) .. "' y='" .. number(-bounds.maxY)
                     .. "' width='" .. number(spanX) .. "' height='" .. number(spanY)
                     .. "' preserveAspectRatio='none' href='data:image/bmp;base64,")
-                local bytes = ((width * 3 + 3) // 4 * 4) * height
-                carry = string.pack("<c2I4I2I2I4I4i4i4I2I2I4I4i4i4I4I4",
-                    "BM", 54 + bytes, 0, 0, 54, 40, width, height, 1, 24, 0, bytes, 2835, 2835, 0, 0)
+                local bytes = math.floor((width * 3 + 3) / 4) * 4 * height
+                -- BITMAPFILEHEADER + BITMAPINFOHEADER, positive bottom-up dimensions.
+                carry = "BM" .. littleEndian(54 + bytes, 4) .. littleEndian(0, 4)
+                    .. littleEndian(54, 4) .. littleEndian(40, 4)
+                    .. littleEndian(width, 4) .. littleEndian(height, 4)
+                    .. littleEndian(1, 2) .. littleEndian(24, 2)
+                    .. littleEndian(0, 4) .. littleEndian(bytes, 4)
+                    .. littleEndian(2835, 4) .. littleEndian(2835, 4)
+                    .. littleEndian(0, 4) .. littleEndian(0, 4)
                 row = 0
                 advance("terrain-encode", 0.50)
             elseif self.phase == "terrain-encode" then
@@ -300,7 +312,7 @@ function exporter.new(snapshot, options)
                     row = row + 1
                 end
                 local bytes = table.concat(blocks)
-                local length = row == height and #bytes or #bytes // 3 * 3
+                local length = row == height and #bytes or math.floor(#bytes / 3) * 3
                 carry = bytes:sub(length + 1)
                 queue(base64(bytes:sub(1, length)) .. (row == height and "'/></g>\n" or ""))
                 self.progress = 0.50 + 0.15 * row / height
@@ -360,7 +372,7 @@ function exporter.new(snapshot, options)
                     end
                 end
             elseif self.phase == "suffix" then
-                local suffix = view.suffix(frozen)
+                local suffix = view.suffix(copied)
                 if #self.warnings > 0 then
                     local messages = {}
                     for _, warning in ipairs(self.warnings) do

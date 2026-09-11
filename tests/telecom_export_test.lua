@@ -1,4 +1,5 @@
 -- Run from the repository root: lua tests/telecom_export_test.lua
+-- Same dependency-free suite for Lua 5.1, 5.2 and 5.3.
 -- The renderer stub deliberately tests the exporter independently of the GUI.
 package.path = "./res/scripts/?.lua;" .. package.path
 local realIO, realOS, realAPI = io, os, api
@@ -138,8 +139,8 @@ local function engine(edgeCount, getHeight)
     local p, t0, t1, shared = {}, {}, {}, {}
     local enumerating = false
     local function invalidate()
-        local _, main = coroutine.running()
-        assert(main, "engine API called in coroutine")
+        local thread, main = coroutine.running()
+        assert(thread == nil or main, "engine API called in coroutine")
         stats.calls = stats.calls + 1
         for _, v in ipairs({ p, t0, t1 }) do v.x, v.y, v.z = 999999, 999999, 999999 end
         for key in pairs(shared) do shared[key] = nil end
@@ -225,6 +226,15 @@ local function noBackground()
     return { outputDirectory = "/exports", terrain = false, roads = false, rails = false }
 end
 
+local function u16(bytes, offset)
+    local a, b = bytes:byte(offset, offset + 1)
+    return a + b * 256
+end
+
+local function u32(bytes, offset)
+    return u16(bytes, offset) + u16(bytes, offset + 2) * 65536
+end
+
 local function decodeBMP(html)
     local encoded = assert(html:match("data:image/bmp;base64,([A-Za-z0-9+/=]+)"), "missing embedded BMP")
     assert(#encoded % 4 == 0)
@@ -234,22 +244,26 @@ local function decodeBMP(html)
     for i = 1, #encoded, 4 do
         local a, b, c, d = encoded:sub(i, i), encoded:sub(i + 1, i + 1), encoded:sub(i + 2, i + 2), encoded:sub(i + 3, i + 3)
         local n = indices[a] * 262144 + indices[b] * 4096 + (indices[c] or 0) * 64 + (indices[d] or 0)
-        bytes[#bytes + 1] = string.char(n // 65536 % 256)
-        if c ~= "=" then bytes[#bytes + 1] = string.char(n // 256 % 256) end
+        bytes[#bytes + 1] = string.char(math.floor(n / 65536) % 256)
+        if c ~= "=" then bytes[#bytes + 1] = string.char(math.floor(n / 256) % 256) end
         if d ~= "=" then bytes[#bytes + 1] = string.char(n % 256) end
     end
     local bmp = table.concat(bytes)
     assert(bmp:sub(1, 2) == "BM")
-    assert(string.unpack("<I4", bmp, 3) == #bmp)
-    assert(string.unpack("<I4", bmp, 11) == 54)
-    assert(string.unpack("<I4", bmp, 15) == 40)
-    local width, height = string.unpack("<i4i4", bmp, 19)
-    assert(string.unpack("<I2", bmp, 27) == 1)
-    assert(string.unpack("<I2", bmp, 29) == 24)
-    assert(string.unpack("<I4", bmp, 31) == 0)
-    local stride = (width * 3 + 3) // 4 * 4
+    assert(u32(bmp, 3) == #bmp)
+    assert(u16(bmp, 7) == 0 and u16(bmp, 9) == 0)
+    assert(u32(bmp, 11) == 54)
+    assert(u32(bmp, 15) == 40)
+    local width, height = u32(bmp, 19), u32(bmp, 23)
+    assert(width >= 1 and width <= 512 and height >= 1 and height <= 512)
+    assert(u16(bmp, 27) == 1)
+    assert(u16(bmp, 29) == 24)
+    assert(u32(bmp, 31) == 0)
+    local stride = math.floor((width * 3 + 3) / 4) * 4
     assert(#bmp == 54 + stride * height)
-    assert(string.unpack("<I4", bmp, 35) == stride * height)
+    assert(u32(bmp, 35) == stride * height)
+    assert(u32(bmp, 39) == 2835 and u32(bmp, 43) == 2835)
+    assert(u32(bmp, 47) == 0 and u32(bmp, 51) == 0)
     local function pixel(x, y)
         local offset = 55 + y * stride + x * 3
         local b, g, r = bmp:byte(offset, offset + 2)
@@ -271,7 +285,7 @@ local function test(name, fn)
     else failed = failed + 1; print("not ok - " .. name .. "\n" .. tostring(err)) end
 end
 
-test("bounded steps, progress, snapshot freeze, captured io/os and HTML escaping", function()
+test("bounded steps, progress, snapshot isolation, captured io/os and HTML escaping", function()
     local fs, input, opts = filesystem(), snapshot(), noBackground()
     fs.install()
     api = nil
@@ -280,26 +294,74 @@ test("bounded steps, progress, snapshot freeze, captured io/os and HTML escaping
     assert(fs.opens == 0, "new performs file work")
     input.year, input.nodes[1].name, input.bounds.maxX = 1900, "mutated", 999
     input.nodes[1].services[1].townIds[1] = 999
+    input.nodes[2], input.coverage[2].hasFixed = {}, false
     opts.outputDirectory, opts.terrain = "/other", true
     io, os = realIO, realOS
+    untilPhase(job, "suffix")
+    input.nodes[1].name, input.towns[1].name = "mutated again", "changed town"
     run(job, nil, fs)
     assert(not job.error and job.progress == 1 and job.phase == "done")
     assert(job.path:match("^/exports/telecom_map_20260911%-213503_%d+%.html$"))
     local html = fs.files[job.path]
     contains(html, "A&lt;&amp;&quot;&#39;:2026")
+    contains(html, "<text>A&lt;&amp;&quot;&#39;</text>")
     contains(html, "viewBox='-20 -30 80 40'")
     assert(seenPrefix == seenSuffix and seenPrefix ~= input)
     assert(seenSuffix.nodes[1].services[1].townIds[1] == 2)
+    assert(seenSuffix.coverage[2].hasFixed and seenSuffix.towns[1].name == "Town")
     assert(#seenPrefix.nodes == 1)
     local count = 0
     for _ in pairs(seenPrefix.bounds) do count = count + 1 end
     assert(count == 4)
-    assert(not pcall(function() seenPrefix.year = 1 end))
-    assert(not pcall(function() seenPrefix.nodes[1].name = "changed" end))
+    local nodes = 0
+    for i, node in ipairs(seenPrefix.nodes) do nodes = nodes + 1; assert(node.id == i) end
+    assert(nodes == 1)
     assert(fs.flushes == 1 and fs.renames == 1)
     job:cancel()
     assert(fs.files[job.path] == html, "cancel removed published output")
     fs.clean()
+end)
+
+test("private copies are plain deep tables, preserving shared data but isolating jobs", function()
+    local fs, input = filesystem(), snapshot(); fs.install()
+    input.shared = input.nodes[1].services
+    setmetatable(input.nodes, { __index = { inherited = true } })
+    local a = exporter.new(input, noBackground())
+    local b = exporter.new(input, noBackground())
+    untilPhase(a, "terrain-init")
+    local first = seenPrefix
+    untilPhase(b, "terrain-init")
+    local second = seenPrefix
+    local function isolated(original, copy)
+        if type(original) ~= "table" then assert(original == copy); return end
+        assert(type(copy) == "table" and copy ~= original and getmetatable(copy) == nil)
+        local count, copiedCount = 0, 0
+        for key, value in pairs(original) do
+            count = count + 1
+            isolated(value, copy[key])
+        end
+        for _ in pairs(copy) do copiedCount = copiedCount + 1 end
+        assert(count == copiedCount)
+    end
+    isolated(input, first)
+    isolated(first, second)
+    assert(first.nodes.inherited == nil)
+    assert(first.shared == first.nodes[1].services and first.shared ~= input.shared)
+    -- A trusted renderer can mutate its copy, but never the caller or another job.
+    first.nodes[1].services[1].townIds[1] = 77
+    assert(input.shared[1].townIds[1] == 2 and second.shared[1].townIds[1] == 2)
+    untilPhase(a, "publish"); untilPhase(b, "publish")
+    run(a); run(b)
+    assert(not a.error and not b.error, a.error or b.error)
+    fs.clean()
+end)
+
+test("engine guard accepts the main thread and rejects coroutines", function()
+    engine(0)
+    assert(api.engine.util.getWorld() == 0)
+    local ok, err = coroutine.resume(coroutine.create(function() api.engine.util.getWorld() end))
+    assert(not ok)
+    contains(err, "engine API called in coroutine")
 end)
 
 test("reject invalid snapshot and options before any engine/file work", function()

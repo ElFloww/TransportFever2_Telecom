@@ -3,15 +3,20 @@ local network = require "telecom_network"
 local REFRESH_SECONDS = 5
 local SCRIPT = "telecom_growth.lua"
 local EVENT_ID = "telecom_network"
+local STATE_SCHEMA = 2
+local SNAPSHOT_FIELDS = { "revision", "year", "nodes", "towns", "coverage", "bounds", "boundsEstimated",
+    "globalBonus", "coveredTowns", "interval", "error" }
+
+local function emptyState()
+    return { schema = STATE_SCHEMA, revision = 0, nodes = {}, towns = {}, coverage = {},
+        bounds = { minX = -128, maxX = 128, minY = -128, maxY = 128 },
+        boundsEstimated = true, error = "En attente du premier calcul moteur" }
+end
 
 function data()
     -- Before the first successful scan, unknown year/metrics stay absent rather
     -- than displaying a fictional year or reporting a failed scan as zero coverage.
-    local state = {
-        revision = 0, nodes = {}, towns = {}, coverage = {},
-        bounds = { minX = -128, maxX = 128, minY = -128, maxY = 128 },
-        boundsEstimated = true, error = "En attente du premier calcul moteur",
-    }
+    local state = emptyState()
     local lastRefresh, ui
     local refreshRequested = false
     local reportedErrors = {}
@@ -33,6 +38,7 @@ function data()
         -- One transaction boundary: no partial snapshot/config on collection failure.
         local ok, result = pcall(function()
             local snapshot = network.computeSnapshot(network.collect(api, game.interface), state.revision + 1)
+            snapshot.schema = STATE_SCHEMA
             assert(game.config, "game.config indisponible")
             -- Retains the existing global setting; its runtime effect needs in-game validation.
             game.config.townDevelopInterval = snapshot.interval
@@ -58,7 +64,14 @@ function data()
         end,
 
         load = function(loaded)
-            if type(loaded) == "table" and type(loaded.revision) == "number" then state = loaded end
+            state = emptyState()
+            -- Discard pre-export snapshots and never restore obsolete map/UI caches.
+            if type(loaded) == "table" and loaded.schema == STATE_SCHEMA
+                and type(loaded.revision) == "number" and loaded.revision >= 0
+                and loaded.revision < math.huge and loaded.revision % 1 == 0 then
+                for _, key in ipairs(SNAPSHOT_FIELDS) do state[key] = loaded[key] end
+                state.nodes, state.towns, state.coverage = state.nodes or {}, state.towns or {}, state.coverage or {}
+            end
             -- Engine: immediate refresh after a saved game is loaded.
             -- GUI: only replace the snapshot; never collect or write game.config.
             lastRefresh = nil
@@ -75,13 +88,13 @@ function data()
 
         guiInit = function()
             local ok, err = xpcall(function()
-                local map = require "telecom_map"
-                ui = map.new(function() refreshRequested = true end)
+                local panel = require "telecom_panel"
+                ui = panel.new(function() refreshRequested = true end)
             end, guiError)
             if not ok then
                 report(err)
                 local message = api.gui.comp.TextView.new("Telecom: " .. tostring(err))
-                local window = api.gui.comp.Window.new("Telecom - Erreur de carte", message)
+                local window = api.gui.comp.Window.new("Telecom - Erreur d'interface", message)
                 window:addHideOnCloseHandler()
                 window:setVisible(true, false)
             end
@@ -104,7 +117,6 @@ function data()
         guiHandleEvent = function(id, name, param)
             if name == "builder.apply" then
                 refreshRequested = true
-                if ui and ui.invalidateBackground then ui:invalidateBackground() end
             end
         end,
     }
