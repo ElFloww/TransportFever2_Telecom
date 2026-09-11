@@ -637,12 +637,32 @@ function data()
                 local coverPct = townCount > 0 and math.floor(coveredTowns * 100 / townCount) or 0
 
                 -- ============================================================
-                -- AFFICHAGE
+                -- AFFICHAGE AVEC DEBUG
                 -- ============================================================
                 if infraText then
+                    local debugStr = ""
+                    pcall(function()
+                        local ids = game.interface.getEntities({pos={0,0}, radius=999999}, {type="CONSTRUCTION"}) or {}
+                        local found = {}
+                        for _, eid in ipairs(ids) do
+                            pcall(function()
+                                local e = game.interface.getEntity(eid)
+                                if e and e.fileName and not e.fileName:find("industry") and not e.fileName:find("street") then
+                                    table.insert(found, e.fileName)
+                                end
+                            end)
+                        end
+                        if #found > 0 then
+                            debugStr = "\n[Debug] " .. tostring(found[#found])
+                            if #found > 1 then debugStr = debugStr .. "\n[Debug] " .. tostring(found[#found-1]) end
+                        else
+                            debugStr = "\n[Debug] Aucune autre construction trouvée"
+                        end
+                    end)
+
                     infraText:setText(
                         "  Filaire  : " .. wireNodes .. " noeud(s)\n" ..
-                        "  Mobile   : " .. mobileNodes .. " antenne(s)"
+                        "  Mobile   : " .. mobileNodes .. " antenne(s)" .. debugStr
                     )
                 end
 
