@@ -40,13 +40,13 @@ local SYNERGY_MULT  = 1.2  -- multiplicateur si fixe + mobile
 
 -- Définition des technologies antenne : { année, portée, bonus }
 local ANTENNA_TECHS = {
-    { year = 1992, radius = 2000, bonus = 0.02, name = "2G"  },  -- param index 1
-    { year = 2004, radius = 1500, bonus = 0.03, name = "3G"  },  -- param index 2
-    { year = 2006, radius = 1500, bonus = 0.04, name = "3G+" },  -- param index 3
-    { year = 2012, radius = 1200, bonus = 0.05, name = "4G"  },  -- param index 4
-    { year = 2014, radius = 1200, bonus = 0.06, name = "4G+" },  -- param index 5
-    { year = 2020, radius =  800, bonus = 0.08, name = "5G"  },  -- param index 6
-    { year = 2023, radius =  500, bonus = 0.10, name = "5G+" },  -- param index 7
+    { year = 1992, radius = 2000, bonus = 0.02, name = "2G",  key = "tech_2g"  },
+    { year = 2004, radius = 1500, bonus = 0.03, name = "3G",  key = "tech_3g"  },
+    { year = 2006, radius = 1500, bonus = 0.04, name = "3G+", key = "tech_3gp" },
+    { year = 2012, radius = 1200, bonus = 0.05, name = "4G",  key = "tech_4g"  },
+    { year = 2014, radius = 1200, bonus = 0.06, name = "4G+", key = "tech_4gp" },
+    { year = 2020, radius =  800, bonus = 0.08, name = "5G",  key = "tech_5g"  },
+    { year = 2023, radius =  500, bonus = 0.10, name = "5G+", key = "tech_5gp" },
 }
 
 -- Bonus fixe par type d'infrastructure
@@ -146,8 +146,11 @@ local function collectTelecomNodes()
                     for techIdx, tech in ipairs(ANTENNA_TECHS) do
                         local isActive = false
                         pcall(function()
-                            if con.params and con.params[techIdx] then
-                                isActive = (con.params[techIdx] == 1)
+                            if con.params then
+                                if con.params[tech.key] == 1 then isActive = true
+                                elseif con.params[techIdx] == 1 then isActive = true
+                                elseif con.params[techIdx - 1] == 1 then isActive = true
+                                end
                             end
                         end)
                         if isActive and currentYear >= tech.year then
@@ -411,7 +414,21 @@ function data()
                 local sep4 = api.gui.comp.TextView.new("────────────────────────────────")
                 outerLayout:addItem(sep4)
 
+                -- Section Radar
+                local secRadar = api.gui.comp.TextView.new("[ Radar Spatial ]")
+                outerLayout:addItem(secRadar)
+
+                local radarLegend = api.gui.comp.TextView.new("  🏠 Ville | ■ NRA | ▲ NRO | ● Antenne")
+                outerLayout:addItem(radarLegend)
+
+                local radarText = api.gui.comp.TextView.new("  (Chargement...)")
+                radarText:setId("telecom_radar_text")
+                outerLayout:addItem(radarText)
+
                 -- Section Bonus
+                local sep5 = api.gui.comp.TextView.new("────────────────────────────────")
+                outerLayout:addItem(sep5)
+
                 local secBonus = api.gui.comp.TextView.new("[ Effet sur la croissance ]")
                 outerLayout:addItem(secBonus)
 
@@ -422,9 +439,8 @@ function data()
                 bonusText:setId("telecom_bonus_text")
                 outerLayout:addItem(bonusText)
 
-                -- Pied de fenêtre
-                local sep5 = api.gui.comp.TextView.new("────────────────────────────────")
-                outerLayout:addItem(sep5)
+                local sep6 = api.gui.comp.TextView.new("────────────────────────────────")
+                outerLayout:addItem(sep6)
 
                 local footer = api.gui.comp.TextView.new(
                     "Placez NRA/NRO/Antennes pres\n" ..
@@ -442,7 +458,7 @@ function data()
                     window:addHideOnCloseHandler()
                 end
                 if api.gui.util and api.gui.util.Size then
-                    window:setSize(api.gui.util.Size.new(520, 580))
+                    window:setSize(api.gui.util.Size.new(520, 820))
                 end
 
                 window:setVisible(true, false)
@@ -540,10 +556,17 @@ function data()
                                     local px = p and (p.x or p[1] or 0) or 0
                                     local py = p and (p.y or p[2] or 0) or 0
 
-                                    -- Lire les params : indices 1-7 pour les 7 technologies
+                                    -- Lire les params de maniere robuste
                                     for techIdx, tech in ipairs(ANTENNA_TECHS) do
                                         pcall(function()
-                                            if e.params and e.params[techIdx] and e.params[techIdx] == 1 then
+                                            local isActive = false
+                                            if e.params then
+                                                if e.params[tech.key] == 1 then isActive = true
+                                                elseif e.params[techIdx] == 1 then isActive = true
+                                                elseif e.params[techIdx - 1] == 1 then isActive = true
+                                                end
+                                            end
+                                            if isActive then
                                                 techCounts[tech.name] = (techCounts[tech.name] or 0) + 1
                                                 if p then
                                                     table.insert(nodes, {
@@ -565,6 +588,7 @@ function data()
                 -- ============================================================
                 local townCount    = 0
                 local coveredTowns = 0
+                local towns_data   = {}
                 pcall(function()
                     local tids = game.interface.getTowns() or {}
                     townCount = #tids
@@ -574,6 +598,7 @@ function data()
                             if t and t.position then
                                 local tx = t.position.x or t.position[1] or 0
                                 local ty = t.position.y or t.position[2] or 0
+                                table.insert(towns_data, {x = tx, y = ty})
                                 for _, n in ipairs(nodes) do
                                     local dx = tx - n.x
                                     local dy = ty - n.y
@@ -586,6 +611,77 @@ function data()
                         end)
                     end
                 end)
+
+                -- ============================================================
+                -- GENERATION DU RADAR
+                -- ============================================================
+                local radarTextUI = api.gui.util.getById("telecom_radar_text")
+                if radarTextUI then
+                    local mapText = ""
+                    pcall(function()
+                        local minX, maxX = math.huge, -math.huge
+                        local minY, maxY = math.huge, -math.huge
+
+                        for _, t in ipairs(towns_data) do
+                            if t.x < minX then minX = t.x end
+                            if t.x > maxX then maxX = t.x end
+                            if t.y < minY then minY = t.y end
+                            if t.y > maxY then maxY = t.y end
+                        end
+                        for _, n in ipairs(nodes) do
+                            if n.x < minX then minX = n.x end
+                            if n.x > maxX then maxX = n.x end
+                            if n.y < minY then minY = n.y end
+                            if n.y > maxY then maxY = n.y end
+                        end
+
+                        if minX == math.huge then
+                            mapText = "  (Aucune donnee spatiale)"
+                        else
+                            local pad = math.max(100, (maxX - minX) * 0.1, (maxY - minY) * 0.1)
+                            if maxX == minX then pad = 1000 end
+                            minX = minX - pad
+                            maxX = maxX + pad
+                            minY = minY - pad
+                            maxY = maxY + pad
+                            
+                            local W = 40
+                            local H = 15
+                            
+                            local grid = {}
+                            for r = 1, H do
+                                grid[r] = {}
+                                for c = 1, W do
+                                    grid[r][c] = "·"
+                                end
+                            end
+                            
+                            for _, n in ipairs(nodes) do
+                                local c = math.floor((n.x - minX) / (maxX - minX) * (W - 1)) + 1
+                                local r = H - math.floor((n.y - minY) / (maxY - minY) * (H - 1))
+                                if c >= 1 and c <= W and r >= 1 and r <= H then
+                                    if n.kind == "NRA" then grid[r][c] = "■"
+                                    elseif n.kind == "NRO" then grid[r][c] = "▲"
+                                    elseif n.kind == "ANTENNA" then grid[r][c] = "●"
+                                    end
+                                end
+                            end
+                            
+                            for _, t in ipairs(towns_data) do
+                                local c = math.floor((t.x - minX) / (maxX - minX) * (W - 1)) + 1
+                                local r = H - math.floor((t.y - minY) / (maxY - minY) * (H - 1))
+                                if c >= 1 and c <= W and r >= 1 and r <= H then
+                                    grid[r][c] = "V" -- Utilise V au lieu de l'emoji pour meilleur alignement
+                                end
+                            end
+                            
+                            for r = 1, H do
+                                mapText = mapText .. "  " .. table.concat(grid[r], " ") .. "\n"
+                            end
+                        end
+                    end)
+                    radarTextUI:setText(mapText)
+                end
 
                 -- ============================================================
                 -- 3. BONUS ACTUEL
