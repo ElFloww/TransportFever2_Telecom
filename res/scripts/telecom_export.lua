@@ -239,7 +239,7 @@ function exporter.new(snapshot, options)
                     local terrain = api.engine.getComponent(api.engine.util.getWorld(), api.type.ComponentType.TERRAIN)
                     water = checked(assert(terrain, "TERRAIN unavailable").waterLevel, "TERRAIN.waterLevel")
                     heightAt = api.engine.terrain.getHeightAt or api.engine.terrain.getBaseHeightAt
-                    assert(type(heightAt) == "function", "getHeightAt unavailable")
+                    assert(heightAt ~= nil, "getHeightAt unavailable")
                 end)
                 if terrainOK then
                     heights, cell = {}, 0

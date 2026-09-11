@@ -75,6 +75,8 @@ function data()
                 for _, key in ipairs(SNAPSHOT_FIELDS) do state[key] = loaded[key] end
                 state.nodes, state.towns, state.coverage = state.nodes or {}, state.towns or {}, state.coverage or {}
             end
+            state.exportStatus = nil
+            currentExportJob = nil
             -- Engine: immediate refresh after a saved game is loaded.
             -- GUI: only replace the snapshot; never collect or write game.config.
             lastRefresh = nil
@@ -83,6 +85,20 @@ function data()
         update = function()
             local now = os.time()
             if not lastRefresh or now < lastRefresh or now - lastRefresh >= REFRESH_SECONDS then refresh() end
+
+            -- DEBUG: Dump api.engine.terrain
+            if not state.debugDumped and api.engine and api.engine.terrain then
+                state.debugDumped = true
+                local dump = {}
+                for k, v in pairs(api.engine.terrain) do
+                    table.insert(dump, tostring(k) .. " = " .. type(v))
+                end
+                local f = io.open("terrain_api_dump.txt", "w")
+                if f then
+                    f:write(table.concat(dump, "\n"))
+                    f:close()
+                end
+            end
 
             if currentExportJob then
                 local ok, err = pcall(function() currentExportJob:step() end)
