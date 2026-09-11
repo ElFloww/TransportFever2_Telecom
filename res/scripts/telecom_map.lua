@@ -165,7 +165,7 @@ function M.new(requestRefresh)
         end
     end)
     outer:addItem(selectRow)
-    local scroll = comp.ScrollArea.new(details)
+    local scroll = comp.ScrollArea.new(details, "telecom_map_details")
     scroll:setMinimumSize(util.Size.new(W, 82))
     scroll:setMaximumSize(util.Size.new(W, 82))
     outer:addItem(scroll)

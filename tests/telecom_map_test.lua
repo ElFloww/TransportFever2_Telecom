@@ -382,9 +382,13 @@ local function fakeApi(options)
         local o = object("ComboBox", methods.ComboBox)
         o.items, o.index, o.rebuilds = {}, -1, 0; f.dropdown = o; return o
     end }
-    gui.comp.ScrollArea = { new = function(child)
+    gui.comp.ScrollArea = { new = function(child, name)
         check(child.kind == "TextView", "expected details content")
-        local o = object("ScrollArea", methods.ScrollArea); o.child = child; f.details = child; return o
+        check(type(name) == "string", "ScrollArea.new requires a component name as its second argument")
+        local o = object("ScrollArea", methods.ScrollArea)
+        o.child, o.name = child, name
+        f.details = child
+        return o
     end }
     gui.comp.Window = { new = function(title, layout)
         check(type(title) == "string" and layout.kind == "BoxLayout", "Window.new arguments")
@@ -533,6 +537,16 @@ test("mock rejects unsupported signatures and enforces zero-based layout ownersh
     rejects(function() line:addLine(f.api.type.Vec2f.new(-1, 0), f.api.type.Vec2f.new(5, 5)) end)
     line:addLine(f.api.type.Vec2f.new(0, 0), f.api.type.Vec2f.new(16, 16))
     assert(#line.lines == 1); line:clear(); assert(#line.lines == 0)
+end)
+
+test("ScrollArea constructor requires content and a component name", function()
+    local f = fakeApi()
+    local gui = f.api.gui
+    local content = gui.comp.TextView.new("Details")
+    assert(not pcall(gui.comp.ScrollArea.new, content), "missing component name must be rejected")
+    assert(not pcall(gui.comp.ScrollArea.new, content, 123), "numeric component name must be rejected")
+    local scroll = gui.comp.ScrollArea.new(content, "telecom_map_details")
+    assert(scroll.child == content and scroll.name == "telecom_map_details")
 end)
 
 local function snapshot(revision, change)
