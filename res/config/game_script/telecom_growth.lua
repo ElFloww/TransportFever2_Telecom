@@ -545,51 +545,82 @@ function data()
                 if not infraText and not covText and not bonusText then return end
 
                 -- ============================================================
-                -- 1. SCAN DES CONSTRUCTIONS TELECOM (UI Thread)
+                -- 1. SCAN DES CONSTRUCTIONS / ASSETS (UI Thread)
                 -- ============================================================
                 local wireNodes = 0
                 local mobileNodes = 0
                 local nodes = {}
+                local debugStr = ""
 
                 pcall(function()
-                    -- La syntaxe correcte demande la bounding box en premier argument !
-                    local ids = game.interface.getEntities({pos={0,0}, radius=999999}, {type="CONSTRUCTION"}) or {}
-                    for _, eid in ipairs(ids) do
-                        pcall(function()
-                            local e = game.interface.getEntity(eid)
-                            if e and e.fileName and e.fileName:find("telecom") then
-                                local fn = e.fileName
-                                local isWire = fn:find("fixed_line") or fn:find("fiber")
-                                if isWire then wireNodes = wireNodes + 1
-                                else mobileNodes = mobileNodes + 1 end
-                                
-                                local radius = 600
-                                pcall(function()
-                                    if e.params and e.params[1] then
-                                        local p = e.params[1]
-                                        if fn:find("fixed_line_1850") then radius = ({100,200,300,400,500})[p+1] or 300
-                                        elseif fn:find("fiber_2020") then radius = ({300,450,600,900,1200})[p+1] or 600
-                                        elseif fn:find("mobile_1990") then radius = ({400,600,800,1000})[p+1] or 600
-                                        elseif fn:find("mobile_2030") then radius = ({800,1200,1600,2000})[p+1] or 1200
-                                        end
-                                    else
-                                        -- Default fallback si params indisponible dans UI
-                                        if fn:find("fixed_line_1850") then radius = 300
-                                        elseif fn:find("mobile_2030") then radius = 1200 end
+                    local function scanType(typeStr)
+                        local ids = game.interface.getEntities({pos={0,0}, radius=999999}, {type=typeStr}) or {}
+                        for _, eid in ipairs(ids) do
+                            pcall(function()
+                                local e = game.interface.getEntity(eid)
+                                if e then
+                                    local isTelecom = false
+                                    local isWire = false
+                                    local matchStr = ""
+                                    
+                                    -- Check fileName (pour les .con)
+                                    if e.fileName and e.fileName:find("telecom") then
+                                        isTelecom = true
+                                        matchStr = e.fileName
+                                        if e.fileName:find("fixed_line") or e.fileName:find("fiber") then isWire = true end
                                     end
-                                end)
-                                
-                                local p = e.position
-                                if p then
-                                    table.insert(nodes, {
-                                        x = p.x or p[1] or 0,
-                                        y = p.y or p[2] or 0,
-                                        r = radius
-                                    })
+                                    
+                                    -- Check models (pour les assets purs)
+                                    if not isTelecom and e.models then
+                                        for _, mdl in pairs(e.models) do
+                                            local mName = type(mdl) == "string" and mdl or (type(mdl) == "table" and mdl[1] or "")
+                                            if mName:find("telecom") then
+                                                isTelecom = true
+                                                matchStr = mName
+                                                if mName:find("pole") or mName:find("cabinet") or mName:find("fixed_line") or mName:find("fiber") then
+                                                    isWire = true
+                                                end
+                                                break
+                                            end
+                                        end
+                                    end
+                                    
+                                    if isTelecom then
+                                        debugStr = debugStr .. "\n[Debug] Trouve: " .. matchStr
+                                        if isWire then wireNodes = wireNodes + 1
+                                        else mobileNodes = mobileNodes + 1 end
+                                        
+                                        local radius = 600
+                                        pcall(function()
+                                            if e.params and e.params[1] then
+                                                local p = e.params[1]
+                                                if matchStr:find("fixed_line_1850") then radius = ({100,200,300,400,500})[p+1] or 300
+                                                elseif matchStr:find("fiber_2020") then radius = ({300,450,600,900,1200})[p+1] or 600
+                                                elseif matchStr:find("mobile_1990") then radius = ({400,600,800,1000})[p+1] or 600
+                                                elseif matchStr:find("mobile_2030") then radius = ({800,1200,1600,2000})[p+1] or 1200
+                                                end
+                                            else
+                                                if matchStr:find("fixed_line") or matchStr:find("pole") or matchStr:find("cabinet") then radius = 300
+                                                elseif matchStr:find("mobile_2030") or matchStr:find("tower") then radius = 1200 end
+                                            end
+                                        end)
+                                        
+                                        local p = e.position
+                                        if p then
+                                            table.insert(nodes, {
+                                                x = p.x or p[1] or 0,
+                                                y = p.y or p[2] or 0,
+                                                r = radius
+                                            })
+                                        end
+                                    end
                                 end
-                            end
-                        end)
+                            end)
+                        end
                     end
+                    
+                    scanType("CONSTRUCTION")
+                    scanType("ASSET_GROUP")
                 end)
 
                 -- ============================================================
@@ -640,26 +671,7 @@ function data()
                 -- AFFICHAGE AVEC DEBUG
                 -- ============================================================
                 if infraText then
-                    local debugStr = ""
-                    pcall(function()
-                        local ids = game.interface.getEntities({pos={0,0}, radius=999999}, {type="CONSTRUCTION"}) or {}
-                        local found = {}
-                        for _, eid in ipairs(ids) do
-                            pcall(function()
-                                local e = game.interface.getEntity(eid)
-                                if e and e.fileName and not e.fileName:find("industry") and not e.fileName:find("street") then
-                                    table.insert(found, e.fileName)
-                                end
-                            end)
-                        end
-                        if #found > 0 then
-                            debugStr = "\n[Debug] " .. tostring(found[#found])
-                            if #found > 1 then debugStr = debugStr .. "\n[Debug] " .. tostring(found[#found-1]) end
-                        else
-                            debugStr = "\n[Debug] Aucune autre construction trouvée"
-                        end
-                    end)
-
+                    if debugStr == "" then debugStr = "\n[Debug] Aucune antenne/asset trouve" end
                     infraText:setText(
                         "  Filaire  : " .. wireNodes .. " noeud(s)\n" ..
                         "  Mobile   : " .. mobileNodes .. " antenne(s)" .. debugStr
