@@ -1,10 +1,10 @@
 -- Export controls only. No native map, geometry cache or camera/ComboBox bindings.
 local M = {}
 
-function M.new(requestRefresh)
+function M.new(requestRefresh, requestExport, cancelExport)
     local comp, layout, util = api.gui.comp, api.gui.layout, api.gui.util
     local self = {}
-    local snapshot, job, message, tooltip
+    local snapshot, message, tooltip
     local outer = layout.BoxLayout.new("VERTICAL")
     local summary = comp.TextView.new(_("Chargement des donnees telecom..."))
     summary:setMaximumSize(util.Size.new(600, 70))
@@ -19,23 +19,15 @@ function M.new(requestRefresh)
     end
     local refresh = button("Actualiser", requestRefresh)
     local export = button("Exporter HTML", function()
-        if job or not snapshot or snapshot.error or not snapshot.year then return end
-        local ok, result = pcall(function()
-            return require("telecom_export").new(snapshot, { terrainResolution = 512 })
-        end)
-        if ok then
-            job, message, tooltip = result, _("Export en cours..."), ""
-        else
-            message, tooltip = _("Export impossible (voir details)"), tostring(result)
-            print("[Telecom export] " .. tooltip)
-        end
+        if not snapshot or snapshot.error or not snapshot.year then return end
+        if snapshot.exportStatus and snapshot.exportStatus.active then return end
+        message, tooltip = _("Export demande au moteur..."), ""
+        if requestExport then requestExport() end
     end)
     local cancel = button("Annuler export", function()
-        if not job then return end
-        job:cancel()
-        message = job.cleanupError and _("Export annule, nettoyage incomplet (voir details)") or _("Export annule.")
-        tooltip = table.concat(job.warnings or {}, "\n")
-        job = nil
+        if not snapshot or not snapshot.exportStatus or not snapshot.exportStatus.active then return end
+        message, tooltip = _("Annulation demandee..."), ""
+        if cancelExport then cancelExport() end
     end)
     export:setEnabled(false)
     cancel:setEnabled(false)
@@ -73,28 +65,28 @@ function M.new(requestRefresh)
 
     function self:update(state)
         snapshot = state
-        -- Keep an explicitly requested export running when the panel is hidden.
-        if job then
-            job:step()
-            if job.done then
-                if job.error then
-                    message = _("Export impossible (voir details)")
-                    tooltip = tostring(job.error) .. "\n" .. table.concat(job.warnings or {}, "\n")
-                else
-                    message = _("Carte exportee : ") .. tostring(job.path)
-                    tooltip = tostring(job.path) .. "\n" .. table.concat(job.warnings or {}, "\n")
-                end
-                print("[Telecom export] " .. tooltip)
-                job = nil
-            else
-                message = string.format(_("Export : %.0f%% | %s"), 100 * (job.progress or 0), job.phase or "")
+        local active = state and state.exportStatus and state.exportStatus.active
+
+        if state and state.exportStatus then
+            local status = state.exportStatus
+            if not status.active and status.error then
+                message = _("Export impossible (voir details)")
+                tooltip = tostring(status.error) .. "\n" .. (status.warnings and table.concat(status.warnings, "\n") or "")
+            elseif not status.active and status.path then
+                message = _("Carte exportee : ") .. tostring(status.path)
+                tooltip = tostring(status.path) .. "\n" .. (status.warnings and table.concat(status.warnings, "\n") or "")
+            elseif status.active then
+                message = string.format(_("Export : %.0f%% | %s"), 100 * (status.progress or 0), status.phase or "")
+            elseif status.message then
+                message = status.message
+                tooltip = status.tooltip or ""
             end
         end
         if not window:isVisible() then return end
         local ready = state ~= nil and state.year ~= nil and not state.error
-        export:setEnabled(ready and job == nil)
-        cancel:setEnabled(job ~= nil)
-        refresh:setEnabled(job == nil)
+        export:setEnabled(ready and not active)
+        cancel:setEnabled(active)
+        refresh:setEnabled(not active)
         if ready then
             summary:setText(string.format(_("Annee %d | Equipements %d | Villes couvertes %d / %d\nBonus global calcule : %.1f%%"),
                 state.year, #state.nodes, state.coveredTowns, #state.towns, 100 * state.globalBonus))
