@@ -65,7 +65,7 @@ function M.new(requestRefresh, requestExport, cancelExport)
 
     function self:update(state)
         snapshot = state
-        local active = state and state.exportStatus and state.exportStatus.active
+        local active = (state and state.exportStatus and state.exportStatus.active) == true
 
         if state and state.exportStatus then
             local status = state.exportStatus
