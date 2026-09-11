@@ -418,6 +418,9 @@ function data()
                 -- ----------------------------------------------------------------
                 -- CONSTRUCTION DE LA FENETRE
                 -- ----------------------------------------------------------------
+                local existing = api.gui.util.getById("telecom_status_window")
+                if existing then existing:destroy() end
+
                 local outerLayout = api.gui.layout.BoxLayout.new("VERTICAL")
 
                 -- En-tête
@@ -464,7 +467,7 @@ function data()
                     "  Bonus actuel : +0%\n" ..
                     "  Intervalle   : 60 ticks (défaut)"
                 )
-                bonusText:setId("telecom_status_text")  -- ID gardé pour compatibilité guiUpdate
+                bonusText:setId("telecom_status_text")
                 outerLayout:addItem(bonusText)
 
                 -- Pied de fenêtre
@@ -488,23 +491,14 @@ function data()
                 end
                 if api.gui.util and api.gui.util.Size then
                     window:setSize(api.gui.util.Size.new(500, 520))
-                covBox:addItem(covTitle)
-                covBox:addItem(covText)
-                mainLayout:addItem(covBox)
-
-                -- BONUS
-                local statusBox = api.gui.layout.BoxLayout.new("VERTICAL")
-                local statusTitle = api.gui.comp.TextView.new("--- BONUS DE CROISSANCE ---")
-                local statusText = api.gui.comp.TextView.new("  Bonus actuel : (calcul...)")
-                statusText:setId("telecom_status_text")
-                statusBox:addItem(statusTitle)
-                statusBox:addItem(statusText)
-                mainLayout:addItem(statusBox)
+                end
 
                 window:setVisible(true, false)
                 print("[Telecom] Fenetre principale creee et visible")
 
+                -- ----------------------------------------------------------------
                 -- BOUTON TOGGLE DANS LE JEU
+                -- ----------------------------------------------------------------
                 local toggleBtn = api.gui.comp.Button.new(api.gui.util.Size.new(32, 32), false)
                 toggleBtn:setId("telecom_toggle_btn")
                 toggleBtn:setTooltip("Afficher/Masquer Telecom")
@@ -535,7 +529,11 @@ function data()
 
                 _telecom_gui_tick = 0
             end)
+            if not ok then
+                print("[Telecom] CRASH guiInit: " .. tostring(err))
+            end
         end,
+
 
         guiUpdate = function()
             pcall(function()
