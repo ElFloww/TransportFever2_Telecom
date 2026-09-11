@@ -15,7 +15,7 @@ end
 
 function data()
     return {
-        type = "ASSET_DEFAULT",
+        type = "STREET_CONSTRUCTION",
         description = {
             name        = _("Nœud fibre optique (2020)"),
             description = _("Infrastructure fibre optique à très haut débit. Améliore fortement la croissance des zones raccordées. Remplace avantageusement le réseau filaire 1850."),

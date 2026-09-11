@@ -15,7 +15,7 @@ end
 
 function data()
     return {
-        type = "ASSET_DEFAULT",
+        type = "STREET_CONSTRUCTION",
         description = {
             name        = _("Antenne mobile (1990)"),
             description = _("Premier réseau télécom mobile (2G). Offre une couverture sans fil et stimule davantage la croissance que le réseau filaire."),

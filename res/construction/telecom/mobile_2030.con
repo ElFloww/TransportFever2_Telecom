@@ -15,7 +15,7 @@ end
 
 function data()
     return {
-        type = "ASSET_DEFAULT",
+        type = "STREET_CONSTRUCTION",
         description = {
             name        = _("Antenne 5G (2030)"),
             description = _("Réseau mobile de nouvelle génération (5G). Offre la plus grande portée et le bonus de croissance mobile le plus élevé. Complémentaire à la fibre optique."),

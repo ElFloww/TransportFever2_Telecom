@@ -15,7 +15,7 @@ end
 
 function data()
     return {
-        type = "ASSET_DEFAULT",
+        type = "STREET_CONSTRUCTION",
         description = {
             name        = _("Poteau téléphonique (1850)"),
             description = _("Infrastructure filaire de base. Raccorde les habitants au réseau téléphonique et augmente la croissance de la ville."),
