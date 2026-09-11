@@ -1,152 +1,157 @@
-# Réseaux de Communication — v0.2
+# Réseaux de Communication
 
-Mod pour **Transport Fever 2** qui ajoute des infrastructures télécoms historiques
-permettant d'augmenter la croissance des villes connectées.
+Mod pour **Transport Fever 2** ajoutant des NRA, NRO et antennes mobiles,
+avec une carte graphique de leurs portées et un calcul de bonus de croissance.
 
----
+## Carte Télécom
 
-## Fonctionnalités
+Le bouton **Telecom**, dans la barre d'informations du jeu, ouvre la carte.
+Elle remplace l'ancien radar textuel. C'est une fenêtre intégrée au jeu,
+**pas un nouveau calque du sélecteur natif de Transport Fever 2**.
 
-### 4 constructions télécoms
+| Élément | Marqueur | Couverture |
+|---|---|---|
+| NRA | Carré bleu | Cercle de 1 500 m |
+| NRO | Triangle violet | Cercle de 3 000 m |
+| Antenne | Rond orange, gris si inactive | Un cercle par technologie active |
+| Ville | Croix grise ou verte | Verte si son centre est couvert |
 
-| Construction | Disponible | Type | Rayon | Bonus croissance |
-|---|---|---|---|---|
-| Poteau téléphonique | 1850 | Filaire | 100–500 m | +5% |
-| Antenne mobile 2G | 1990 | Mobile | 400–1000 m | +10% |
-| Nœud fibre optique | 2020 | Filaire | 300–1200 m | +20% |
-| Antenne 5G | 2030 | Mobile | 800–2000 m | +15% |
+- Coordonnées réelles, limites de la partie et échelle uniforme en mètres.
+- Fond simplifié : contours d'altitude, eau échantillonnée, routes et rails.
+- Filtres par infrastructure et par technologie mobile, avec légende colorée.
+- Boutons **+ / -** pour zoomer, glisser avec le bouton gauche pour déplacer.
+- **Carte entière** rétablit la vue générale.
+- Clic sur un marqueur ou sélection dans la liste pour afficher les détails.
+- **Couverture : sélection** limite les cercles à l'équipement sélectionné.
+- **Hachures** matérialise l'intérieur des zones de couverture.
+- **Centrer carte** rapproche la vue de l'élément sélectionné ; **Voir en jeu**
+  déplace la caméra principale vers cet élément.
+- **Actualiser** demande un nouveau calcul et reconstruit le fond géographique.
 
-### Système de bonus
+Une antenne peut proposer plusieurs technologies et plusieurs portées. Les
+technologies partageant le même rayon ont des contours superposés : utiliser
+leurs filtres pour les distinguer. Désactiver une technologie dans la carte
+ne désactive pas l'équipement et ne modifie pas son bonus.
 
-- Le bonus de chaque ville dépend de **la meilleure infrastructure** qui la couvre
-  (la fibre 2020 remplace le bonus du filaire 1850 si les deux coexistent)
-- **Bonus synergie** : +20% supplémentaire si une ville est couverte à la fois
-  en filaire ET en mobile
-- **Bonus global** = moyenne pondérée sur toutes les villes × ratio de couverture
-- **Plafond** : +60% maximum au-dessus du facteur de base
+Les croix vertes et les statistiques décrivent **la couverture globale calculée**,
+indépendamment des filtres visuels. Le panneau de détails indique les villes
+couvertes par chaque service et les contributions reçues par chaque ville.
+La liste permet de sélectionner aussi les marqueurs superposés ou hors écran.
 
-### Calques visuels
+### Performances Et Limites
 
-Deux calques disponibles dans le menu Carte :
-- 🔵 **Couverture filaire** — cercles bleus/cyan autour des nœuds filaires
-- 🟢 **Couverture mobile** — cercles verts/oranges autour des antennes
+Le fond est calculé progressivement, puis mis en cache. Les constructions et
+démolitions invalident ce cache. Un renouvellement toutes les minutes prend aussi
+en compte les routes créées automatiquement par les villes. Fermer la fenêtre
+suspend le travail graphique. Un index spatial limite le tracé routier à la vue.
+Les segments sont regroupés par couleur, avec plusieurs petits renderers plutôt
+qu'un unique très gros tampon. Sur une carte dense, le message **Affichage limité**
+signale une simplification : zoomer, filtrer ou afficher seulement la sélection.
 
----
+Le fond est une représentation vectorielle approximative, pas une capture du
+terrain. L'eau est déduite du niveau d'eau et d'un échantillonnage de l'altitude ;
+les petits cours d'eau peuvent manquer. Les terrassements nécessitent au besoin
+**Actualiser**. Une indisponibilité du fond ne supprime pas les données télécom.
+Si les dimensions du terrain sont indisponibles, les limites sont estimées à
+partir des villes et des disques de portée et signalées comme telles.
 
-## Installation
+**La couverture reste théorique** : disque en deux dimensions, sans obstacles,
+relief, capacité, réseau cuivre/fibre physique ni couverture bâtiment par bâtiment.
+Une ville est considérée couverte si son point de référence est dans un disque.
 
-1. Copiez le dossier du mod dans :
-   - **Mac** : `~/Library/Application Support/Transport Fever 2/mods/`
-   - **Windows** : `%APPDATA%\Transport Fever 2\mods\`
-2. Activez le mod depuis le menu principal → Mods
-3. Lancez une nouvelle partie (ou une sauvegarde existante)
+## Infrastructures
 
----
+Constructions disponibles dans **Construction > Divers/Misc** :
 
-## Utilisation
+| Construction | Année | Portée | Contribution |
+|---|---|---|---|
+| NRA cuivre | 1974 | 1 500 m | +3 % |
+| NRO fibre FTTH | 2007 | 3 000 m | +8 % |
+| Antenne multitechnologie | 1992 | Selon technologie | Selon technologie |
 
-1. Ouvrez l'onglet **Construction** → **Divers/Misc**
-2. Placez les nœuds télécoms autour de vos villes
-3. Activez les calques depuis l'icône Carte pour visualiser la couverture
-4. Les villes couvertes verront leur croissance augmenter au bout de ~60 secondes jeu
+| Technologie | Année | Portée | Contribution |
+|---|---|---|---|
+| 2G | 1992 | 2 000 m | +2 % |
+| 3G | 2004 | 1 500 m | +3 % |
+| 3G+ | 2006 | 1 500 m | +4 % |
+| 4G | 2012 | 1 200 m | +5 % |
+| 4G+ | 2014 | 1 200 m | +6 % |
+| 5G | 2020 | 800 m | +8 % |
+| 5G+ | 2023 | 500 m | +10 % |
 
-### Conseils d'équilibrage
+Les technologies sont désactivées par défaut. Une technologie configurée avant
+son année de disponibilité reste inactive jusqu'à cette année ; son état est
+indiqué dans les détails. Une antenne inactive reste visible sur la carte.
 
-- En zones denses : placez plusieurs nœuds rapprochés avec un petit rayon
-- En zones rurales : un seul nœud avec rayon maximum suffit
-- Combinez toujours filaire + mobile pour le bonus de synergie
-- La fibre 2020 + 5G 2030 = combo optimal
+## Calcul Et Synchronisation
 
----
+Pour chaque ville, le calcul conserve la meilleure contribution fixe et
+additionne les contributions mobiles, y compris celles d'antennes différentes.
+Le cumul est multiplié par 1,2 si fixe et mobile sont présents. La moyenne sur
+toutes les villes, couvertes ou non, est plafonnée à 60 %.
 
-## Compatibilité
+Le comportement historique d'application est conservé :
+`game.config.townDevelopInterval = floor(60 * (1 - bonusGlobal))`.
+Il s'agit d'un réglage **global**, pas d'une modification locale de chaque ville.
+Son effet dynamique sur la croissance doit être confirmé en jeu ; la carte
+affiche donc un **bonus global calculé**, pas une croissance mesurée.
 
-- Compatible avec la majorité des mods qui ne modifient pas `game.config.townGrowthFactor`
-- Si vous utilisez un mod de croissance personnalisée (ex. Natural Town Growth) :
-  désactivez l'un des deux, ou ajustez manuellement `BASE_GROWTH` dans `telecom_growth.lua`
+La simulation produit un snapshot unique avec positions, services, liens de
+couverture et statistiques. `save/load` transmet ce snapshot à l'interface et le
+conserve dans la sauvegarde. Premier calcul immédiat, puis toutes les cinq
+secondes réelles lorsque le moteur exécute les callbacks, ainsi que sur demande.
+En pause, une demande peut attendre la reprise du moteur. L'interface ne recalcule
+pas une couverture différente et ne modifie pas la simulation.
 
----
+Une erreur de collecte conserve les dernières données connues, avec un message
+explicite ; avant le premier calcul réussi, aucun faux zéro n'est affiché.
 
-## Personnalisation
+## Installation Et Compatibilité
 
-Modifiez les valeurs dans `res/config/game_script/telecom_growth.lua` :
+1. Installer le dossier du mod dans le répertoire `mods` de Transport Fever 2.
+2. Activer le mod lors de la création ou du chargement d'une partie.
+3. Placer des infrastructures et ouvrir **Telecom** dans la barre du jeu.
 
-```lua
-local TICK_INTERVAL = 60   -- fréquence de recalcul (secondes jeu)
-local BASE_GROWTH   = 1.0  -- facteur de croissance de base TF2
-local MAX_BONUS     = 0.60 -- bonus maximum cumulé (+60%)
-local SYNERGY_MULT  = 1.2  -- multiplicateur synergie filaire+mobile
+Les chemins des trois constructions existantes n'ont pas changé. Les
+sauvegardes sans snapshot télécom sont initialisées au premier calcul.
+Les mods modifiant également `game.config.townDevelopInterval` peuvent entrer
+en conflit avec le réglage de croissance conservé par ce mod.
 
-local WIRE_BONUS = {
-    [1850] = 0.05,  -- +5%
-    [2020] = 0.20,  -- +20%
-}
-local MOBILE_BONUS = {
-    [1990] = 0.10,  -- +10%
-    [2030] = 0.15,  -- +15%
-}
+Les `.mdl` restent des **placeholders sans géométrie 3D**. Cette mise à jour
+dessine les marqueurs sur la carte mais ne fournit pas de nouveaux modèles
+d'antennes ou de bâtiments pour la scène principale.
+
+## Développement
+
+| Fichier | Rôle |
+|---|---|
+| `res/config/game_script/telecom_growth.lua` | Cycle moteur/GUI, synchronisation et application du bonus |
+| `res/scripts/telecom_network.lua` | Catalogue, collecte et calcul pur de la couverture |
+| `res/scripts/telecom_map.lua` | Interface, filtres, sélection et tracé vectoriel |
+| `res/scripts/telecom_map_geometry.lua` | Projection, découpage des segments et formes |
+| `res/scripts/telecom_map_background.lua` | Fond géographique progressif |
+| `res/config/style_sheet/telecom.lua` | Styles de la carte |
+| `strings.lua` | Traductions françaises et anglaises |
+
+Tests autonomes depuis la racine, avec Lua 5.3 :
+
+```sh
+lua tests/telecom_network_test.lua
+lua tests/telecom_map_test.lua
 ```
 
----
+Les tests vérifient les calculs et utilisent une API simulée pour l'interface.
+Ils ne remplacent pas une validation du rendu natif dans Transport Fever 2.
+Vérifier en jeu : ouverture/fermeture, échelle UI/Retina, déplacements de fenêtre,
+zoom et sélection, construction/démolition, passage d'année, pause/reprise,
+sauvegarde/rechargement et grande carte avec de nombreuses infrastructures.
+Les diagnostics sont préfixés `[Telecom]` ou `[Telecom map]` dans le journal du jeu.
 
-## Structure du projet
-
-```
-com.elfloww.telecom_networks/
-├── mod.lua                           ← Point d'entrée & enregistrement
-├── strings.lua                       ← Localisation FR/EN
-└── res/
-    ├── config/
-    │   ├── game_script/
-    │   │   └── telecom_growth.lua    ← Moteur de couverture & bonus
-    │   └── ui/
-    │       └── layers/
-    │           ├── telecom_wire.lua  ← Calque filaire
-    │           └── telecom_mobile.lua ← Calque mobile
-    ├── construction/
-    │   └── telecom/
-    │       ├── fixed_line_1850.con
-    │       ├── mobile_1990.con
-    │       ├── fiber_2020.con
-    │       └── mobile_2030.con
-    └── models/
-        └── model/
-            └── telecom/
-                ├── pole.mdl          ← À remplacer par asset 3D custom
-                ├── tower.mdl         ← À remplacer par asset 3D custom
-                └── cabinet.mdl       ← À remplacer par asset 3D custom
-```
-
----
-
-## ⚠️ Note sur les modèles 3D
-
-Les fichiers `.mdl` actuels sont des **placeholders structurels** sans géométrie réelle.
-Pour avoir des modèles visibles en jeu, vous avez deux options :
-
-**Option A** — Réutiliser des modèles vanilla TF2 :
-- Trouver les chemins dans `[installation TF2]/res/models/model/`
-- Remplacer le contenu des `.mdl` par un fichier qui pointe vers un mesh existant
-
-**Option B** — Créer des assets custom :
-- Créer des meshes dans Blender
-- Les exporter avec le ModelEditor TF2
-- Placer les `.msh` dans `res/models/mesh/telecom/`
-- Mettre à jour les `.mdl` en conséquence
-
----
-
-## Backlog / idées futures
-
-- [ ] Assets 3D custom (poteau bois 1850, pylône GSM 1990, coffret fibre 2020, antenne 5G 2030)
-- [ ] Coût d'entretien mensuel dynamique
-- [ ] Infobulle par ville avec % de couverture
-- [ ] Événements : pannes temporaires de couverture
-- [ ] Tech tree léger pour débloquer les époques
-
----
+Références : [API GUI](https://transportfever2.com/wiki/api/modules/api.gui.html),
+[terrain](https://transportfever2.com/wiki/api/modules/api.type.html#Terrain),
+[synchronisation des scripts](https://wiki.transportfever2.com/doku.php?id=modding:gamescripts).
 
 ## Crédits
 
-- Concept & design : @elfloww
-- Code v0.2 : implémentation complète avec IA (Antigravity / Google DeepMind)
+- Concept et design : @elfloww.
+- Implémentation initiale v0.2 : Antigravity / Google DeepMind.

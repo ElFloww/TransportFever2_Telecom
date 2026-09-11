@@ -21,8 +21,10 @@ Infrastructure mobile :
 
 Bonus synergie x1.2 si couverture fixe + mobile.
 Bonus cumulatif plafonne a +60%.
+Carte de couverture : bouton Telecom dans la barre du jeu.
+Marqueurs par type, filtres technologiques, zoom et selection.
 Placez les noeuds depuis Construction > Divers.]]),
-            minorVersion  = 2,
+            minorVersion  = 3,
             severityAdd   = "NONE",
             severityRemove = "NONE",
             authors       = { "elfloww" },
@@ -39,9 +41,7 @@ Placez les noeuds depuis Construction > Divers.]]),
         -- postRunFn : appelé après chargement de tous les mods.
         -- On peut ici injecter des éléments UI ou des overrides de dernier recours.
         postRunFn = function(settings, modParams)
-            -- Les calques UI sont déclarés dans res/config/ui/layers/
-            -- et seront automatiquement chargés par le jeu si le format est correct.
-            -- Aucune action supplémentaire nécessaire ici pour l'instant.
+            -- La carte est creee par guiInit du game_script, pas par un calque natif.
         end,
     }
 end
