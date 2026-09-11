@@ -583,9 +583,6 @@ function data()
 
                 local coverPct = townCount > 0 and math.floor(coveredTowns * 100 / townCount) or 0
 
-                -- ============================================================
-                -- AFFICHAGE
-                -- ============================================================
                 if infraText then
                     if data_found then
                         infraText:setText(
@@ -593,9 +590,26 @@ function data()
                             "  Mobile   : " .. mobileNodes .. " antenne(s)"
                         )
                     else
+                        local ids1 = game.interface.getEntities({pos={0,0}, radius=999999}, {type="CONSTRUCTION"}) or {}
+                        local ids2 = game.interface.getEntities({pos={0,0,0}, radius=999999}, {type="CONSTRUCTION"}) or {}
+                        local ids3 = game.interface.getEntities({radius=999999}, {type="CONSTRUCTION"}) or {}
+                        
+                        -- Testons aussi la lecture de fileName sur la première construction trouvée
+                        local sampleInfo = "Aucune"
+                        local ids = (#ids1 > 0) and ids1 or ((#ids2 > 0) and ids2 or ids3)
+                        if #ids > 0 then
+                            pcall(function()
+                                local e = game.interface.getEntity(ids[1])
+                                if e then
+                                    sampleInfo = "ID: " .. tostring(ids[1]) .. " type: " .. tostring(e.type) .. " file: " .. tostring(e.fileName)
+                                end
+                            end)
+                        end
+
                         infraText:setText(
-                            "  Filaire  : (isole)\n" ..
-                            "  Mobile   : (isole)"
+                            "  Diagnostic UI (Isole) :\n" ..
+                            "  Test A: " .. #ids1 .. " / Test B: " .. #ids2 .. " / Test C: " .. #ids3 .. "\n" ..
+                            "  Sample: " .. sampleInfo
                         )
                     end
                 end
