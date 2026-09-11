@@ -121,9 +121,12 @@ local function filesystem()
         fs.files[to], fs.files[from] = fs.files[from], nil
         return true
     end
-    function fs.install()
+    function fs.install(opts)
+        opts = opts or {}
         io = { open = fs.open, type = function(f) return f.closed and "closed file" or "file" end }
-        os = { remove = fs.remove, rename = fs.rename, date = function() return "20260911-213503" end }
+        os = { date = function() return "20260911-213503" end }
+        if opts.remove ~= false then os.remove = fs.remove end
+        if opts.rename ~= false then os.rename = fs.rename end
     end
     function fs.clean()
         for path in pairs(fs.files) do assert(not path:match("%.part$"), "partial left: " .. path) end
@@ -512,7 +515,8 @@ test("optional API failures warn visibly with escaped text, never a truncated im
             end
         elseif scenario == "height" then
             local calls = 0
-            api.engine.terrain.getHeightAt = function()
+            api.engine.terrain.getHeightAt = nil
+            api.engine.terrain.getBaseHeightAt = function()
                 calls = calls + 1
                 if calls > 256 then error(attack) end
                 return 123
@@ -565,7 +569,9 @@ test("nonfinite optional engine data cannot leak NaN/Infinity into SVG/BMP", fun
     for _, scenario in ipairs({ "water", "height", "position", "tangent" }) do
         local fs = filesystem(); fs.install(); engine(2)
         local get = api.engine.getComponent
-        if scenario == "height" then api.engine.terrain.getHeightAt = function() return math.huge end
+        if scenario == "height" then
+            api.engine.terrain.getHeightAt = nil
+            api.engine.terrain.getBaseHeightAt = function() return math.huge end
         else
             api.engine.getComponent = function(id, component)
                 local value = get(id, component)
@@ -589,6 +595,26 @@ test("nonfinite optional engine data cannot leak NaN/Infinity into SVG/BMP", fun
         end
         fs.clean()
     end
+end)
+
+test("fallback without os.rename publishes directly with no .part", function()
+    local fs = filesystem(); fs.install({ rename = false }); engine(2)
+    local job = exporter.new(snapshot(), noBackground())
+    run(job)
+    assert(not job.error and job.path and fs.renames == 0)
+    assert(fs.files[job.path], "missing direct publication")
+    assert(not fs.files[job.path .. ".part"], "part file should not exist without rename")
+    fs.clean()
+end)
+
+test("fallback without os.remove reports cleanup warning instead of crashing", function()
+    local fs = filesystem(); fs.install({ remove = false }); engine(2)
+    local job = exporter.new(snapshot(), noBackground())
+    untilPhase(job, "roads")
+    job:cancel()
+    assert(job.done and job.phase == "cancelled")
+    assert(job.cleanupError and job.cleanupError:find("os.remove unavailable", 1, true))
+    assert(next(fs.files) ~= nil, "without os.remove the temporary/export file remains")
 end)
 
 test("write, flush, close and rename false/nil/exception never publish success", function()

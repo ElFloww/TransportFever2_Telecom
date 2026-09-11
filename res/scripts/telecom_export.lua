@@ -89,8 +89,9 @@ end
 function exporter.new(snapshot, options)
     local job = { done = false, error = nil, path = nil, progress = 0, phase = "open", warnings = {} }
     local open, remove, rename, date, ioType = io.open, os.remove, os.rename, os.date, io.type
+    local canRemove, canRename = type(remove) == "function", type(rename) == "function"
     local handle, partial, target, directory, stamp, view, copied, opts, bounds, spanX, spanY
-    local pending, pendingOffset, heights, width, height, dx, dy, water, cell, row, carry
+    local pending, pendingOffset, heights, width, height, dx, dy, water, cell, row, carry, heightAt
     local ids, edgeIndex, paths, pathIndex, edgeWarning
 
     local function warn(message)
@@ -113,9 +114,13 @@ function exporter.new(snapshot, options)
         local ok, err = closeHandle()
         if not ok then errors[#errors + 1] = "Cleanup close: " .. err end
         if partial then
-            local success, result, message = pcall(remove, partial)
-            if success and result then partial = nil
-            else errors[#errors + 1] = "Cleanup remove " .. partial .. ": " .. tostring(success and message or result) end
+            if canRemove then
+                local success, result, message = pcall(remove, partial)
+                if success and result then partial = nil
+                else errors[#errors + 1] = "Cleanup remove " .. partial .. ": " .. tostring(success and message or result) end
+            else
+                errors[#errors + 1] = "Cleanup remove " .. partial .. ": os.remove unavailable"
+            end
         end
         for _, message in ipairs(errors) do warn(message) end
         job.cleanupError = #errors > 0 and table.concat(errors, "\n") or nil
@@ -217,11 +222,11 @@ function exporter.new(snapshot, options)
             end
             if self.phase == "open" then
                 target = candidate()
-                if exists(target) or exists(target .. ".part") then return end
+                if exists(target) or (canRename and exists(target .. ".part")) then return end
                 local message
-                handle, message = open(target .. ".part", "wb")
+                partial = canRename and (target .. ".part") or target
+                handle, message = open(partial, "wb")
                 assert(handle, "open: " .. tostring(message))
-                partial = target .. ".part"
                 queue(view.prefix(copied))
                 advance("terrain-init", 0.02)
             elseif self.phase == "terrain-init" then
@@ -233,7 +238,8 @@ function exporter.new(snapshot, options)
                 local terrainOK, terrainError = pcall(function()
                     local terrain = api.engine.getComponent(api.engine.util.getWorld(), api.type.ComponentType.TERRAIN)
                     water = checked(assert(terrain, "TERRAIN unavailable").waterLevel, "TERRAIN.waterLevel")
-                    assert(type(api.engine.terrain.getHeightAt) == "function", "getHeightAt unavailable")
+                    heightAt = api.engine.terrain.getHeightAt or api.engine.terrain.getBaseHeightAt
+                    assert(type(heightAt) == "function", "getHeightAt unavailable")
                 end)
                 if terrainOK then
                     heights, cell = {}, 0
@@ -251,7 +257,7 @@ function exporter.new(snapshot, options)
                         -- BMP is bottom-up: sample south to north, at pixel centres.
                         local position = api.type.Vec2f.new(bounds.minX + (col + 0.5) * dx,
                             bounds.minY + (y + 0.5) * dy)
-                        local h = checked(api.engine.terrain.getHeightAt(position), "terrain height")
+                        local h = checked(heightAt(position), "terrain height")
                         cell = cell + 1
                         heights[cell] = h
                     end
@@ -395,11 +401,13 @@ function exporter.new(snapshot, options)
                 assert(closed, "close: " .. tostring(message))
                 advance("publish", 0.99)
             elseif self.phase == "publish" then
-                -- Standard Lua has no atomic rename-no-replace. Check immediately
-                -- before rename, without yielding; never replace a known file.
-                if exists(target) then target = candidate(); return end
-                local result, message = rename(partial, target)
-                assert(result, "rename: " .. tostring(message))
+                if canRename then
+                    -- Standard Lua has no atomic rename-no-replace. Check immediately
+                    -- before rename, without yielding; never replace a known file.
+                    if exists(target) then target = candidate(); return end
+                    local result, message = rename(partial, target)
+                    assert(result, "rename: " .. tostring(message))
+                end
                 partial = nil
                 self.path, self.done = target, true
                 advance("done", 1)
