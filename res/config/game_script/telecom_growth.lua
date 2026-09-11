@@ -537,95 +537,124 @@ function data()
                 _telecom_gui_tick = (_telecom_gui_tick or 0) + 1
                 if _telecom_gui_tick % 120 ~= 0 then return end
                 if not (api and api.gui and api.gui.util) then return end
+                if not (game and game.interface) then return end
 
                 local infraText = api.gui.util.getById("telecom_infra_text")
                 local covText   = api.gui.util.getById("telecom_cov_text")
                 local bonusText = api.gui.util.getById("telecom_status_text")
                 if not infraText and not covText and not bonusText then return end
 
-                local wireNodes   = 0
+                -- ============================================================
+                -- 1. SCAN DES CONSTRUCTIONS TELECOM (UI Thread)
+                -- ============================================================
+                local wireNodes = 0
                 local mobileNodes = 0
-                local coveredTowns = 0
-                local townCount = 0
-                local interval = 60
-                local bonusPct = 0
+                local nodes = {}
 
-                -- Lecture des données depuis le pont game.config
-                local data_found = false
                 pcall(function()
-                    if game and game.config and game.config.telecom_data and game.config.telecom_data.ready then
-                        local d = game.config.telecom_data
-                        wireNodes    = d.wireNodes or 0
-                        mobileNodes  = d.mobileNodes or 0
-                        coveredTowns = d.coveredTowns or 0
-                        townCount    = d.townCount or 0
-                        interval     = d.interval or 60
-                        bonusPct     = d.bonusPct or 0
-                        data_found   = true
+                    -- La syntaxe correcte demande la bounding box en premier argument !
+                    local ids = game.interface.getEntities({pos={0,0}, radius=999999}, {type="CONSTRUCTION"}) or {}
+                    for _, eid in ipairs(ids) do
+                        pcall(function()
+                            local e = game.interface.getEntity(eid)
+                            if e and e.fileName and e.fileName:find("telecom") then
+                                local fn = e.fileName
+                                local isWire = fn:find("fixed_line") or fn:find("fiber")
+                                if isWire then wireNodes = wireNodes + 1
+                                else mobileNodes = mobileNodes + 1 end
+                                
+                                local radius = 600
+                                pcall(function()
+                                    if e.params and e.params[1] then
+                                        local p = e.params[1]
+                                        if fn:find("fixed_line_1850") then radius = ({100,200,300,400,500})[p+1] or 300
+                                        elseif fn:find("fiber_2020") then radius = ({300,450,600,900,1200})[p+1] or 600
+                                        elseif fn:find("mobile_1990") then radius = ({400,600,800,1000})[p+1] or 600
+                                        elseif fn:find("mobile_2030") then radius = ({800,1200,1600,2000})[p+1] or 1200
+                                        end
+                                    else
+                                        -- Default fallback si params indisponible dans UI
+                                        if fn:find("fixed_line_1850") then radius = 300
+                                        elseif fn:find("mobile_2030") then radius = 1200 end
+                                    end
+                                end)
+                                
+                                local p = e.position
+                                if p then
+                                    table.insert(nodes, {
+                                        x = p.x or p[1] or 0,
+                                        y = p.y or p[2] or 0,
+                                        r = radius
+                                    })
+                                end
+                            end
+                        end)
                     end
                 end)
 
-                -- Fallback : si game.config est isolé, on calcule juste les bonus via config standard
-                if not data_found then
-                    pcall(function()
-                        if game and game.interface and game.interface.getTowns then
-                            local ids = game.interface.getTowns()
-                            if ids then townCount = #ids end
-                        end
-                        if game and game.config and game.config.townDevelopInterval then
-                            interval = game.config.townDevelopInterval
-                        end
-                    end)
-                    if interval < 60 then
-                        bonusPct = math.floor(60.0 * (1.0 - (interval / 60.0)) + 0.5)
+                -- ============================================================
+                -- 2. SCAN DES VILLES ET CALCUL COUVERTURE (UI Thread)
+                -- ============================================================
+                local townCount = 0
+                local coveredTowns = 0
+                pcall(function()
+                    local tids = game.interface.getTowns() or {}
+                    townCount = #tids
+                    for _, tid in ipairs(tids) do
+                        pcall(function()
+                            local t = game.interface.getEntity(tid)
+                            if t and t.position then
+                                local tx = t.position.x or t.position[1] or 0
+                                local ty = t.position.y or t.position[2] or 0
+                                local isCov = false
+                                for _, n in ipairs(nodes) do
+                                    local dx = tx - n.x
+                                    local dy = ty - n.y
+                                    if (dx*dx + dy*dy) <= (n.r * n.r) then
+                                        isCov = true
+                                        break
+                                    end
+                                end
+                                if isCov then coveredTowns = coveredTowns + 1 end
+                            end
+                        end)
                     end
-                end
+                end)
 
+                -- ============================================================
+                -- 3. BONUS ACTUEL
+                -- ============================================================
+                local interval = 60
+                pcall(function()
+                    if game and game.config and game.config.townDevelopInterval then
+                        interval = game.config.townDevelopInterval
+                    end
+                end)
+                local bonusPct = 0
+                if interval < 60 then
+                    bonusPct = math.floor(60.0 * (1.0 - (interval / 60.0)) + 0.5)
+                end
                 local coverPct = townCount > 0 and math.floor(coveredTowns * 100 / townCount) or 0
 
+                -- ============================================================
+                -- AFFICHAGE
+                -- ============================================================
                 if infraText then
-                    if data_found then
-                        infraText:setText(
-                            "  Filaire  : " .. wireNodes .. " noeud(s)\n" ..
-                            "  Mobile   : " .. mobileNodes .. " antenne(s)"
-                        )
-                    else
-                        local ids1 = game.interface.getEntities({pos={0,0}, radius=999999}, {type="CONSTRUCTION"}) or {}
-                        local ids2 = game.interface.getEntities({pos={0,0,0}, radius=999999}, {type="CONSTRUCTION"}) or {}
-                        local ids3 = game.interface.getEntities({radius=999999}, {type="CONSTRUCTION"}) or {}
-                        
-                        -- Testons aussi la lecture de fileName sur la première construction trouvée
-                        local sampleInfo = "Aucune"
-                        local ids = (#ids1 > 0) and ids1 or ((#ids2 > 0) and ids2 or ids3)
-                        if #ids > 0 then
-                            pcall(function()
-                                local e = game.interface.getEntity(ids[1])
-                                if e then
-                                    sampleInfo = "ID: " .. tostring(ids[1]) .. " type: " .. tostring(e.type) .. " file: " .. tostring(e.fileName)
-                                end
-                            end)
-                        end
-
-                        infraText:setText(
-                            "  Diagnostic UI (Isole) :\n" ..
-                            "  Test A: " .. #ids1 .. " / Test B: " .. #ids2 .. " / Test C: " .. #ids3 .. "\n" ..
-                            "  Sample: " .. sampleInfo
-                        )
-                    end
+                    infraText:setText(
+                        "  Filaire  : " .. wireNodes .. " noeud(s)\n" ..
+                        "  Mobile   : " .. mobileNodes .. " antenne(s)"
+                    )
                 end
 
                 if covText then
-                    if data_found then
-                        covText:setText(
-                            "  Villes couvertes : " .. coveredTowns .. " / " .. townCount .. "\n" ..
-                            "  Taux             : " .. coverPct .. "%"
-                        )
-                    else
-                        covText:setText(
-                            "  Villes trouvees : " .. townCount .. " (donnees isolees)\n" ..
-                            "  Veuillez consulter le statut du bonus."
-                        )
-                    end
+                    local bonusStr = bonusPct > 0
+                        and ("+" .. bonusPct .. "% de croissance actif")
+                        or "Placez des infrastructures"
+                    covText:setText(
+                        "  Villes couvertes : " .. coveredTowns .. " / " .. townCount .. "\n" ..
+                        "  Taux             : " .. coverPct .. "%\n" ..
+                        "  " .. bonusStr
+                    )
                 end
 
                 if bonusText then
