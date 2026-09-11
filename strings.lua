@@ -4,6 +4,15 @@ function data()
     return {
         -- Anglais
         en = {
+            ["Exporter HTML"] = "Export HTML",
+            ["Annuler export"] = "Cancel export",
+            ["Export en cours..."] = "Export in progress...",
+            ["Export annule."] = "Export cancelled.",
+            ["Export annule, nettoyage incomplet (voir details)"] = "Export cancelled, incomplete cleanup (see details)",
+            ["Export impossible (voir details)"] = "Export failed (see details)",
+            ["Carte exportee : "] = "Exported map: ",
+            ["Export : %.0f%% | %s"] = "Export: %.0f%% | %s",
+            ["Carte HTML autonome a ouvrir dans un navigateur. Tous les reseaux sont inclus, independamment des filtres de l'apercu."] = "Standalone HTML map to open in a browser. All networks are included, regardless of preview filters.",
             ["Reseaux de communication"] = "Telecom Networks",
             ["Telecom - Carte de couverture"] = "Telecom - Coverage Map",
             ["Afficher la carte de couverture telecom"] = "Show telecom coverage map",
@@ -65,6 +74,11 @@ function data()
 
         -- Français
         fr = {
+            ["Export annule."] = "Export annulé.",
+            ["Export annule, nettoyage incomplet (voir details)"] = "Export annulé, nettoyage incomplet (voir détails)",
+            ["Export impossible (voir details)"] = "Export impossible (voir détails)",
+            ["Carte exportee : "] = "Carte exportée : ",
+            ["Carte HTML autonome a ouvrir dans un navigateur. Tous les reseaux sont inclus, independamment des filtres de l'apercu."] = "Carte HTML autonome à ouvrir dans un navigateur. Tous les réseaux sont inclus, indépendamment des filtres de l'aperçu.",
             ["Reseaux de communication"] = "Réseaux de communication",
             ["Telecom - Carte de couverture"] = "Télécom - Carte de couverture",
             ["Afficher la carte de couverture telecom"] = "Afficher la carte de couverture télécom",

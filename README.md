@@ -59,6 +59,62 @@ partir des villes et des disques de portée et signalées comme telles.
 relief, capacité, réseau cuivre/fibre physique ni couverture bâtiment par bâtiment.
 Une ville est considérée couverte si son point de référence est dans un disque.
 
+## Carte HTML Autonome
+
+Le bouton **Exporter HTML** ajoute une seconde visualisation, inspirée de
+[Cartograph / Tpf2MapExporter](https://github.com/AaditJha/Tpf2MapExporter).
+Elle est recommandée pour consulter la carte entière sans les budgets de tracé
+de l'aperçu natif. L'aperçu en jeu et ses fonctions restent disponibles.
+
+1. Ouvrir **Telecom**, puis cliquer sur **Exporter HTML**.
+2. Attendre la fin de la progression. Le chemin du fichier est affiché dans la
+   fenêtre, sélectionnable et disponible dans son info-bulle.
+3. Ouvrir ce fichier `.html` dans un navigateur.
+
+Les exports sont créés dans **`map_exports/` à la racine du mod**, sous des noms
+horodatés `telecom_map_*.html`. Le répertoire est fourni avec le mod et doit être
+accessible en écriture. Une erreur d'accès est signalée, sans annoncer un faux
+succès. Un dossier existant personnalisé peut être passé au module d'export via
+l'option `outputDirectory`.
+
+### Contenu Et Interactions
+
+- Un document HTML autonome avec SVG intégré, sans serveur, CDN ni requête réseau.
+- Relief ombré et eau dans une image BMP embarquée, proportionnelle à la carte.
+- Routes et rails en véritables courbes cubiques, issues des tangentes du moteur.
+- NRA carrés, NRO triangulaires, antennes rondes et équipements inactifs gris.
+- Surfaces de couverture translucides à leur rayon réel, avec réglage d'opacité.
+- Filtres par équipement, technologie et couche géographique.
+- Zoom à la molette ou avec les boutons, déplacement à la souris ou au toucher.
+- Sélection sur la carte ou dans la liste, informations par service et villes
+  couvertes, mode « équipement sélectionné uniquement ».
+- Interface adaptée aux écrans étroits et légende des distances en mètres/km.
+
+L'export contient toutes les infrastructures et technologies du snapshot, même
+si elles sont masquées dans l'aperçu en jeu. Les filtres du navigateur sont
+indépendants. Les noms provenant de la sauvegarde sont échappés, pas exécutés.
+
+### Fonctionnement Et Limites
+
+La collecte, l'encodage et l'écriture sont découpés en lots entre les mises à jour
+de l'interface. **Annuler export** arrête le travail et tente de supprimer le
+fichier partiel. Fermer la fenêtre laisse l'export continuer. Le fichier final
+n'est publié qu'après écriture, fermeture et renommage réussis ; les collisions
+de noms connues sont évitées. Les erreurs de nettoyage restent signalées.
+
+La carte est un **instantané hors ligne**, pas un calque du sélecteur natif et
+pas une connexion en direct à la partie. Le snapshot télécom est figé au départ ;
+le terrain et les routes sont lus progressivement. Éviter de modifier la carte
+pendant l'export pour conserver une représentation cohérente. Exporter de nouveau
+après modification de la partie. Les données télécom en erreur ne sont pas exportées.
+
+Le relief est échantillonné, pas photographique : le bouton utilise au maximum
+512 pixels sur le grand axe du fond, tandis que les routes et couvertures restent
+vectorielles. Une couche géographique indisponible produit un avertissement visible
+dans le document. La mémoire et les capacités du navigateur restent des limites
+sur les très grosses parties. L'accès aux fichiers et les API terrain nécessitent
+encore une validation dans Transport Fever 2.
+
 ## Infrastructures
 
 Constructions disponibles dans **Construction > Divers/Misc** :
@@ -130,6 +186,8 @@ d'antennes ou de bâtiments pour la scène principale.
 | `res/scripts/telecom_map.lua` | Interface, filtres, sélection et tracé vectoriel |
 | `res/scripts/telecom_map_geometry.lua` | Projection, découpage des segments et formes |
 | `res/scripts/telecom_map_background.lua` | Fond géographique progressif |
+| `res/scripts/telecom_export.lua` | Export progressif, terrain BMP embarqué, courbes SVG et publication du fichier |
+| `res/scripts/telecom_export_view.lua` | Carte HTML/SVG autonome, filtres et interactions navigateur |
 | `res/config/style_sheet/telecom.lua` | Styles de la carte |
 | `strings.lua` | Traductions françaises et anglaises |
 
@@ -138,7 +196,22 @@ Tests autonomes depuis la racine, avec Lua 5.3 :
 ```sh
 lua tests/telecom_network_test.lua
 lua tests/telecom_map_test.lua
+lua tests/telecom_export_test.lua
+lua tests/telecom_export_view_test.lua
 ```
+
+Un argument de dossier temporaire existant à `telecom_export_view_test.lua`
+génère aussi `telecom-export-test.html` avec l'exporteur réel et un moteur simulé.
+Le test navigateur s'exécute avec Node 22 et Chrome :
+
+```sh
+node --experimental-websocket tests/telecom_export_browser_test.mjs /chemin/temporaire/telecom-export-test.html
+```
+
+`CHROME_PATH` permet de définir l'exécutable Chrome. Le test utilise un profil
+temporaire indépendant, le supprime en fin d'exécution et produit deux captures
+desktop/mobile dans le dossier de la fixture. Il vérifie aussi le décodage du BMP,
+les filtres, la sélection, le déplacement et l'absence de requêtes réseau.
 
 Les tests vérifient les calculs et utilisent une API simulée pour l'interface.
 Ils ne remplacent pas une validation du rendu natif dans Transport Fever 2.
@@ -155,3 +228,6 @@ Références : [API GUI](https://transportfever2.com/wiki/api/modules/api.gui.ht
 
 - Concept et design : @elfloww.
 - Implémentation initiale v0.2 : Antigravity / Google DeepMind.
+- Inspiration de l'export autonome : Cartograph / Tpf2MapExporter, Aadit Jha
+  (MIT, commit `9b0f6cfacab0ece5b5043b119307a4043452620f`). L'exporteur télécom
+  et son interface sont une implémentation indépendante, sans copie de ses glyphes.

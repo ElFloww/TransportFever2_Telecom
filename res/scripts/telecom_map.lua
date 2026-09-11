@@ -66,6 +66,11 @@ function M.new(requestRefresh)
     local bg, bgPending, bgCompleted, bgKey, dropdownKey
     local snapshot, appliedRevision, view
     local mouseListener
+    local latestState, exportJob, exportMessage, exportTooltip
+    local exportButton, cancelExportButton
+    local exportText = comp.TextView.new("")
+    exportText:setMaximumSize(util.Size.new(W, 40))
+    exportText:setSelectable(true)
 
     local function button(row, text, callback)
         local b = comp.Button.new(comp.TextView.new(_(text)), false)
@@ -141,7 +146,33 @@ function M.new(requestRefresh)
         self:invalidateBackground()
         requestRefresh()
     end)
+    exportButton = button(context, "Exporter HTML", function()
+        if exportJob then return end
+        local ok, job = pcall(function()
+            return require("telecom_export").new(latestState, { terrainResolution = 512 })
+        end)
+        if ok then
+            exportJob = job
+            exportMessage, exportTooltip = _("Export en cours..."), ""
+        else
+            exportMessage, exportTooltip = _("Export impossible (voir details)"), tostring(job)
+            print("[Telecom export] " .. tostring(job))
+        end
+    end)
+    exportButton:setTooltip(_("Carte HTML autonome a ouvrir dans un navigateur. Tous les reseaux sont inclus, independamment des filtres de l'apercu."))
+    exportButton:setEnabled(false)
+    cancelExportButton = button(context, "Annuler export", function()
+        exportMessage, exportTooltip = _("Export annule."), ""
+        if exportJob then
+            exportJob:cancel()
+            exportTooltip = table.concat(exportJob.warnings or {}, "\n")
+            if exportJob.cleanupError then exportMessage = _("Export annule, nettoyage incomplet (voir details)") end
+            exportJob = nil
+        end
+    end)
+    cancelExportButton:setEnabled(false)
     outer:addItem(context)
+    outer:addItem(exportText)
     outer:addItem(canvas)
     outer:addItem(status)
 
@@ -151,7 +182,7 @@ function M.new(requestRefresh)
         local item = getSelected()
         if not item or not api.engine.entityExists(item.id) then return end
         local ok, err = pcall(function()
-            util.getGameUI():getMainRendererComponent():getCameraController():focus(item.id)
+            util.getGameUI():getMainRendererComponent():getCameraController():focus(item.id, true)
         end)
         cameraError = not ok and tostring(err) or nil
         if not ok then
@@ -455,7 +486,30 @@ function M.new(requestRefresh)
     end
 
     function self:update(state)
+        latestState = state
+        -- Export is explicit and independent of the native preview's draw limits.
+        -- Closing the window hides it; the cancel button stops the file job.
+        if exportJob then
+            exportJob:step()
+            if exportJob.done then
+                if exportJob.error then
+                    exportMessage = _("Export impossible (voir details)")
+                    exportTooltip = tostring(exportJob.error) .. "\n" .. table.concat(exportJob.warnings or {}, "\n")
+                else
+                    exportMessage = _("Carte exportee : ") .. tostring(exportJob.path)
+                    exportTooltip = tostring(exportJob.path) .. "\n" .. table.concat(exportJob.warnings or {}, "\n")
+                end
+                print("[Telecom export] " .. exportTooltip)
+                exportJob = nil
+            else
+                exportMessage = string.format(_("Export : %.0f%% | %s"), 100 * (exportJob.progress or 0), exportJob.phase or "")
+            end
+        end
         if not window:isVisible() then return end
+        exportButton:setEnabled(not exportJob and state ~= nil and state.year ~= nil and not state.error)
+        cancelExportButton:setEnabled(exportJob ~= nil)
+        exportText:setText(exportMessage or "")
+        exportText:setTooltip(exportTooltip or "")
         if not state or not state.bounds or not state.year or state.globalBonus == nil then
             summary:setText(state and state.error and _("Donnees telecom en attente (voir journal)")
                 or _("Chargement des donnees telecom..."))
@@ -482,7 +536,7 @@ function M.new(requestRefresh)
                 end
             end
             local key = table.concat(keys, "\n")
-            if key ~= dropdownKey or dropdown:getNumItems() ~= #choices then
+            if not dropdownReady or key ~= dropdownKey or dropdown:getNumItems() ~= #choices then
                 dropdownReady = false
                 dropdown:setEnabled(false)
                 rebuildingDropdown = true

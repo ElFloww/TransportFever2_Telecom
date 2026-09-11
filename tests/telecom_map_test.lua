@@ -279,6 +279,10 @@ local function fakeApi(options)
         check(type(text) == "string", "TextView.setText expects string")
         write(self); self.text = text
     end
+    function methods.TextView:setSelectable(on)
+        check(type(on) == "boolean", "selectable must be boolean")
+        write(self); self.selectable = on
+    end
     function methods.Button:onClick(callback)
         check(type(callback) == "function", "button callback must be callable")
         write(self); self.callback = callback
@@ -416,8 +420,9 @@ local function fakeApi(options)
         return f.ids[id]
     end
     gui.util.getMouseScreenPos = function() return f.mouse end
-    local camera = { focus = function(_, id)
+    local camera = { focus = function(_, id, flag)
         check(type(id) == "number", "focus expects an entity id")
+        check(type(flag) == "boolean", "focus requires a boolean as its second argument")
         if options.cameraError then error("injected camera failure") end
         f.focused[#f.focused + 1] = id
     end }
@@ -472,6 +477,16 @@ local function fakeApi(options)
             check(false, "unexpected engine component read")
         end,
     }
+    if options.aliasing then
+        local original, shared = engine.getComponent, {}
+        engine.getComponent = function(id, component)
+            local result = original(id, component)
+            for key in pairs(shared) do shared[key] = nil end
+            if not result then return nil end
+            for key, value in pairs(result) do shared[key] = value end
+            return shared
+        end
+    end
     f.api = { gui = gui, engine = engine, type = { ComponentType = types,
         Vec2f = vector("Vec2f", { "x", "y" }), Vec4f = vector("Vec4f", { "x", "y", "z", "w" }) } }
     function f:click(text)
@@ -576,6 +591,15 @@ test("ComboBox clear requires an explicit boolean and can suppress its callback"
     assert(combo:getNumItems() == 0 and events == 1)
 end)
 
+test("camera focus requires an entity and an explicit boolean", function()
+    local f = fakeApi()
+    local camera = f.api.gui.util.getGameUI():getMainRendererComponent():getCameraController()
+    assert(not pcall(function() camera:focus(1) end), "missing focus flag must be rejected")
+    assert(not pcall(function() camera:focus(1, 0) end), "numeric focus flag must be rejected")
+    camera:focus(1, true)
+    assert(#f.focused == 1 and f.focused[1] == 1)
+end)
+
 local function snapshot(revision, change)
     local input = { year = 2023, terrainSize = { x = 64, y = 32 }, nodes = {
         { id = 1, kind = "NRA", name = "Copper", x = -4000, y = 0 },
@@ -602,7 +626,10 @@ local function open(f)
     assert(ui.window == f.window)
     f.summary = f.window.layout.items[1]
     for i, item in ipairs(f.window.layout.items) do
-        if item == f.ids.telecom_map_canvas then f.status = f.window.layout.items[i + 1] end
+        if item == f.ids.telecom_map_canvas then
+            f.status = f.window.layout.items[i + 1]
+            f.exportText = f.window.layout.items[i - 1]
+        end
     end
     assert(f.status)
     if not f.window:isVisible() then f:click("Telecom") end
@@ -696,6 +723,16 @@ test("background: land bands, finite segments and edge frame budget", function()
             for i = 1, 4 do finite(line[i]) end
         end
         assert(bands.hill and bands.high and not bands.water)
+    end)
+end)
+
+test("background copies engine userdata before subsequent lookups reuse it", function()
+    withApi({ aliasing = true }, function(f)
+        local job = background.new({ minX = -200, maxX = 200, minY = -100, maxY = 100 })
+        runJob(job, f)
+        assert(#job.warnings == 0 and #job.roads == 4 and #job.rails == 4)
+        near(job.roads[1][1], -100); near(job.roads[4][3], 100)
+        near(job.rails[1][2], 0); near(job.rails[4][4], 80)
     end)
 end)
 
@@ -1203,6 +1240,61 @@ test("missing gameInfo opens a usable window; camera failures and deleted select
         f:close(); local added = f.stats.linesAdded
         ui:update(state); assert(f.stats.linesAdded == added)
     end)
+end)
+
+test("HTML export is explicit, continues while hidden, can cancel and reports failures", function()
+    local previous = package.loaded.telecom_export
+    local jobs, fail = {}, false
+    package.loaded.telecom_export = { new = function(state, options)
+        if fail then error("injected export failure") end
+        assert(state.year == 2023 and options.terrainResolution == 512)
+        local job = { done = false, progress = 0, phase = "Terrain", warnings = {}, steps = 0 }
+        function job:step()
+            self.steps = self.steps + 1; self.progress = self.steps * 0.3
+            if self.steps == 3 then self.done = true; self.path = "/exports/telecom.html" end
+        end
+        function job:cancel() self.cancelled = true end
+        jobs[#jobs + 1] = job
+        return job
+    end }
+    local ok, err = pcall(function()
+        withApi({}, function(f)
+            local ui, state = open(f), snapshot()
+            assert(not f.buttons["Exporter HTML"].enabled)
+            ui:update(state); assert(#jobs == 0 and f.buttons["Exporter HTML"].enabled)
+            f:click("Exporter HTML"); ui:update(state)
+            assert(#jobs == 1 and jobs[1].steps == 1 and f.buttons["Annuler export"].enabled)
+            contains(f.exportText.text, "30%")
+            f:close(); ui:update(state); ui:update(state)
+            assert(jobs[1].done)
+            f:click("Telecom"); ui:update(state)
+            contains(f.exportText.text, "/exports/telecom.html")
+            f:click("Exporter HTML"); ui:update(state)
+            jobs[2].warnings = { "Terrain incomplet" }
+            f:click("Annuler export"); ui:update(state)
+            assert(jobs[2].cancelled and jobs[2].steps == 1)
+            assert(f.exportText.text == "Export annule.", "content warning is not a cleanup failure")
+            fail = true
+            f:click("Exporter HTML"); ui:update(state)
+            contains(f.exportText.tooltip, "injected export failure")
+            fail = false
+            f:click("Exporter HTML")
+            jobs[3].done, jobs[3].error = true, "Write failed"
+            jobs[3].warnings = { "Cleanup remove /exports/test.part: Permission denied" }
+            ui:update(state)
+            contains(f.exportText.tooltip, "Write failed")
+            contains(f.exportText.tooltip, "/exports/test.part")
+            f:click("Exporter HTML"); ui:update(state)
+            jobs[4].cleanupError = "Cleanup close failed"
+            jobs[4].warnings = { jobs[4].cleanupError }
+            f:click("Annuler export"); ui:update(state)
+            contains(f.exportText.text, "nettoyage incomplet")
+            local stale = snapshot(2); stale.error = "stale"
+            ui:update(stale); assert(not f.buttons["Exporter HTML"].enabled)
+        end)
+    end)
+    package.loaded.telecom_export = previous
+    assert(ok, err)
 end)
 
 print(string.format("%d tests passed; %d failed", passed, failed))

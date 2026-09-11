@@ -148,7 +148,8 @@ function network.computeSnapshot(input, revision)
 end
 
 -- TF2 API reference: api.engine.forEachEntityWithComponent(callback, type),
--- api.engine.util.getWorld(), Construction.transf:col(3), Terrain.size.
+-- api.engine.util.getWorld(), Construction.transf:cols(3), Terrain.size.
+-- The native binding uses "cols" (plural), with zero-based columns, unlike the wiki's "col".
 -- GAME_TIME has gameTime/gameTime0/tickCount/updateCount, not time/date.
 -- The legacy interface supplies the calendar date independently of simulation speed.
 function network.collect(engineApi, interface)
@@ -166,13 +167,14 @@ function network.collect(engineApi, interface)
         local kind = constructionKinds[con.fileName]
         if kind then
             assert(con.transf, "Transformation manquante: " .. tostring(id))
-            local x, y, z = position(con.transf:col(3), "construction " .. tostring(id))
-            local name = engine.getComponent(id, types.NAME)
+            local x, y, z = position(con.transf:cols(3), "construction " .. tostring(id))
             local params = {}
             if kind == "ANTENNA" then
                 assert(con.params, "Parametres antenne indisponibles: " .. tostring(id))
                 for _, tech in ipairs(network.techs) do params[tech.key] = con.params[tech.key] end
             end
+            -- Copy construction data before another getComponent can reuse its userdata.
+            local name = engine.getComponent(id, types.NAME)
             input.nodes[#input.nodes + 1] = {
                 id = id, kind = kind, name = name and name.name or kind,
                 x = x, y = y, z = z, params = params,

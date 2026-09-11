@@ -85,33 +85,39 @@ function M.new(bounds)
                 edgeIndex = edgeIndex + 1
                 if api.engine.entityExists(id) then
                     local edge = api.engine.getComponent(id, api.type.ComponentType.BASE_EDGE)
-                    if edge and api.engine.entityExists(edge.node0) and api.engine.entityExists(edge.node1) then
-                        local a = api.engine.getComponent(edge.node0, api.type.ComponentType.BASE_NODE)
-                        local b = api.engine.getComponent(edge.node1, api.type.ComponentType.BASE_NODE)
-                        if a and b then
-                            local kind = api.engine.getComponent(id, api.type.ComponentType.BASE_EDGE_TRACK)
-                                and "rails" or "roads"
-                            local target = self[kind]
-                            local p, q, t0, t1 = a.position, b.position, edge.tangent0, edge.tangent1
-                            local px, py = p.x, p.y
-                            -- Cubic Hermite interpolation preserves curved roads and tracks.
-                            for i = 1, 4 do
-                                local t = i / 4
-                                local h0, h1 = 2 * t^3 - 3 * t^2 + 1, -2 * t^3 + 3 * t^2
-                                local h2, h3 = t^3 - 2 * t^2 + t, t^3 - t^2
-                                local x = h0 * p.x + h1 * q.x + h2 * t0.x + h3 * t1.x
-                                local y = h0 * p.y + h1 * q.y + h2 * t0.y + h3 * t1.y
-                                local segment = { px, py, x, y }
-                                target[#target + 1] = segment
-                                for ix = math.floor(math.min(px, x) / cellSize), math.floor(math.max(px, x) / cellSize) do
-                                    for iy = math.floor(math.min(py, y) / cellSize), math.floor(math.max(py, y) / cellSize) do
-                                        local key = ix .. ":" .. iy
-                                        local bucket = indexes[kind][key] or {}
-                                        indexes[kind][key] = bucket
-                                        bucket[#bucket + 1] = segment
+                    if edge then
+                        -- Engine userdata may be reused by the next component lookup.
+                        local node0, node1 = edge.node0, edge.node1
+                        local tx0, ty0, tx1, ty1 = edge.tangent0.x, edge.tangent0.y, edge.tangent1.x, edge.tangent1.y
+                        if api.engine.entityExists(node0) and api.engine.entityExists(node1) then
+                            local a = api.engine.getComponent(node0, api.type.ComponentType.BASE_NODE)
+                            local ax, ay = a and a.position.x, a and a.position.y
+                            local b = api.engine.getComponent(node1, api.type.ComponentType.BASE_NODE)
+                            local bx, by = b and b.position.x, b and b.position.y
+                            if ax and bx then
+                                local kind = api.engine.getComponent(id, api.type.ComponentType.BASE_EDGE_TRACK)
+                                    and "rails" or "roads"
+                                local target = self[kind]
+                                local px, py = ax, ay
+                                -- Cubic Hermite interpolation preserves curved roads and tracks.
+                                for i = 1, 4 do
+                                    local t = i / 4
+                                    local h0, h1 = 2 * t^3 - 3 * t^2 + 1, -2 * t^3 + 3 * t^2
+                                    local h2, h3 = t^3 - 2 * t^2 + t, t^3 - t^2
+                                    local x = h0 * ax + h1 * bx + h2 * tx0 + h3 * tx1
+                                    local y = h0 * ay + h1 * by + h2 * ty0 + h3 * ty1
+                                    local segment = { px, py, x, y }
+                                    target[#target + 1] = segment
+                                    for ix = math.floor(math.min(px, x) / cellSize), math.floor(math.max(px, x) / cellSize) do
+                                        for iy = math.floor(math.min(py, y) / cellSize), math.floor(math.max(py, y) / cellSize) do
+                                            local key = ix .. ":" .. iy
+                                            local bucket = indexes[kind][key] or {}
+                                            indexes[kind][key] = bucket
+                                            bucket[#bucket + 1] = segment
+                                        end
                                     end
+                                    px, py = x, y
                                 end
-                                px, py = x, y
                             end
                         end
                     end

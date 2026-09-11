@@ -130,12 +130,20 @@ end)
 
 local function fakeEngine()
     local types = { CONSTRUCTION = 13, TERRAIN = 40, NAME = 63 }
+    local columns = {
+        [0] = { x = 0, y = 1, z = 0, w = 0 },
+        [1] = { x = -1, y = 0, z = 0, w = 0 },
+        [2] = { x = 0, y = 0, z = 1, w = 0 },
+        [3] = { x = 50, y = -80, z = 12, w = 1 },
+    }
     local con = {
         fileName = "telecom/antenna.con", params = { tech_2g = 1 },
-        transf = { col = function(self, index)
-            assert(index == 3)
-            return { x = 50, y = -80, z = 12 }
-        end },
+        transf = setmetatable({ cols = function(self, index)
+            assert(math.type(index) == "integer" and index >= 0 and index <= 3)
+            return columns[index]
+        end }, { __index = function(self, key)
+            error("CMat4f: unknown member " .. tostring(key))
+        end }),
     }
     local fixture = { year = 2023, terrain = { size = { x = 16, y = 8 } }, con = con }
     local fakeApi = {
@@ -170,6 +178,19 @@ local function fakeEngine()
     return fakeApi, interface, fixture
 end
 
+test("native matrix uses cols plural and translation column 3", function()
+    local api, interface, fixture = fakeEngine()
+    local ok, err = pcall(function() return fixture.con.transf:col(3) end)
+    assert(not ok and tostring(err):find("unknown member col", 1, true))
+    assert(fixture.con.transf:cols(0).x == 0 and fixture.con.transf:cols(1).x == -1)
+    local translation = fixture.con.transf:cols(3)
+    for _, xyz in ipairs({ { 0, 0, 0 }, { -1234, 5678, -20 }, { 20, -50, 400 } }) do
+        translation.x, translation.y, translation.z = table.unpack(xyz)
+        local input = network.collect(api, interface)
+        assert(input.nodes[1].x == xyz[1] and input.nodes[1].y == xyz[2] and input.nodes[1].z == xyz[3])
+    end
+end)
+
 test("documented engine collection, Mat4f, world id, named params, plain snapshot", function()
     local api, interface = fakeEngine()
     local s = network.computeSnapshot(network.collect(api, interface), 10)
@@ -194,6 +215,20 @@ test("missing terrain estimates bounds, missing year/position fails explicitly",
     fixture.badPosition, fixture.failTowns = false, true
     ok, err = pcall(network.collect, api, interface)
     assert(not ok and tostring(err):find("Liste des villes"))
+end)
+
+test("construction params are copied before name lookup reuses engine userdata", function()
+    local api, interface = fakeEngine()
+    local original, shared = api.engine.getComponent, {}
+    api.engine.getComponent = function(id, component)
+        local result = original(id, component)
+        for key in pairs(shared) do shared[key] = nil end
+        if not result then return nil end
+        for key, value in pairs(result) do shared[key] = value end
+        return shared
+    end
+    local input = network.collect(api, interface)
+    assert(input.nodes[1].name == "Test antenna" and input.nodes[1].params.tech_2g == 1)
 end)
 
 test("engine lifecycle, real-time throttle, errors retain snapshot, GUI save/load only", function()
@@ -276,6 +311,27 @@ test("engine lifecycle, real-time throttle, errors retain snapshot, GUI save/loa
     serializable(saved)
     _G.api, _G.game, _G.data, os.time, _G.print = oldApi, oldGame, oldData, oldTime, oldPrint
     package.loaded.telecom_map = oldMap
+end)
+
+test("boolean GUI errors include context and a traceback", function()
+    local oldApi, oldGame, oldData, oldPrint = _G.api, _G.game, _G.data, _G.print
+    local oldMap = package.loaded.telecom_map
+    local displayed, logged
+    package.loaded.telecom_map = { new = function()
+        return { update = function() error(false) end,
+            showError = function(self, message) displayed = message end }
+    end }
+    _G.api = { cmd = { make = { sendScriptEvent = function() return {} end }, sendCommand = function() end } }
+    _G.game = {}
+    _G.print = function(message) logged = message end
+    dofile("res/config/game_script/telecom_growth.lua")
+    local gui = data()
+    gui.guiInit()
+    gui.guiUpdate()
+    _G.api, _G.game, _G.data, _G.print = oldApi, oldGame, oldData, oldPrint
+    package.loaded.telecom_map = oldMap
+    assert(displayed:find("Interface telecom: false", 1, true))
+    assert(displayed:find("stack traceback", 1, true) and logged:find(displayed, 1, true))
 end)
 
 print(tostring(passed) .. " tests passed")
