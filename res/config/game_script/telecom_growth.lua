@@ -499,13 +499,10 @@ function data()
                 -- ----------------------------------------------------------------
                 -- BOUTON TOGGLE DANS LE JEU
                 -- ----------------------------------------------------------------
-                local toggleBtn = api.gui.comp.Button.new(api.gui.util.Size.new(32, 32), false)
+                local btnLabel = api.gui.comp.TextView.new("Telecom")
+                local toggleBtn = api.gui.comp.Button.new(btnLabel, true)
                 toggleBtn:setId("telecom_toggle_btn")
                 toggleBtn:setTooltip("Afficher/Masquer Telecom")
-
-                pcall(function()
-                    toggleBtn:setIcon("ui/icons/mods/telecom_icon.tga")
-                end)
 
                 toggleBtn:onClick(function()
                     pcall(function()
