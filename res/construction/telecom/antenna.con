@@ -1,0 +1,90 @@
+-- Antenne multi-technologies
+-- Disponible dès 1992 (lancement du 2G GSM en France)
+-- Le joueur choisit quelles technologies activer via les paramètres.
+-- Chaque technologie a une portée différente (fréquence haute = portée courte).
+-- Le script telecom_growth vérifie l'année courante avant de valider une technologie.
+
+function data()
+    return {
+        type = "STREET_CONSTRUCTION",
+        description = {
+            name        = _("Antenne telecom"),
+            description = _("Antenne de telecommunications multi-technologies. Activez les technologies disponibles (2G a 5G+) pour couvrir les villes alentour et stimuler leur croissance. Les technologies plus recentes offrent un meilleur bonus mais une portee reduite."),
+        },
+        availability = {
+            yearFrom = 1992,
+            yearTo   = 9999,
+        },
+        buildMode  = "SINGLE",
+        category   = "misc",
+        cost       = { price = 40000 },
+        maintenance = { price = 300 },
+        params = {
+            {
+                key          = "tech_2g",
+                name         = _("2G (GSM) — 1992 — 2000 m"),
+                uiType       = "COMBOBOX",
+                values       = { _("Desactive"), _("Active") },
+                defaultIndex = 0,
+            },
+            {
+                key          = "tech_3g",
+                name         = _("3G (UMTS) — 2004 — 1500 m"),
+                uiType       = "COMBOBOX",
+                values       = { _("Desactive"), _("Active") },
+                defaultIndex = 0,
+            },
+            {
+                key          = "tech_3gp",
+                name         = _("3G+ (HSPA) — 2006 — 1500 m"),
+                uiType       = "COMBOBOX",
+                values       = { _("Desactive"), _("Active") },
+                defaultIndex = 0,
+            },
+            {
+                key          = "tech_4g",
+                name         = _("4G (LTE) — 2012 — 1200 m"),
+                uiType       = "COMBOBOX",
+                values       = { _("Desactive"), _("Active") },
+                defaultIndex = 0,
+            },
+            {
+                key          = "tech_4gp",
+                name         = _("4G+ (LTE-A) — 2014 — 1200 m"),
+                uiType       = "COMBOBOX",
+                values       = { _("Desactive"), _("Active") },
+                defaultIndex = 0,
+            },
+            {
+                key          = "tech_5g",
+                name         = _("5G (NR) — 2020 — 800 m"),
+                uiType       = "COMBOBOX",
+                values       = { _("Desactive"), _("Active") },
+                defaultIndex = 0,
+            },
+            {
+                key          = "tech_5gp",
+                name         = _("5G+ (SA) — 2023 — 500 m"),
+                uiType       = "COMBOBOX",
+                values       = { _("Desactive"), _("Active") },
+                defaultIndex = 0,
+            },
+        },
+        updateFn = function(params)
+            return {
+                models = {
+                    {
+                        id    = "telecom/tower.mdl",
+                        transf = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 },
+                    },
+                },
+                groundFaces = {},
+                metadata = {
+                    telecom = {
+                        kind = "ANTENNA",
+                    }
+                },
+            }
+        end,
+    }
+end

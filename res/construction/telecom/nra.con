@@ -1,0 +1,39 @@
+-- NRA — Nœud de Raccordement d'Abonnés
+-- Central téléphonique cuivre, plan de rattrapage téléphonique français (1974)
+-- Portée fixe : 1 500 m
+
+function data()
+    return {
+        type = "STREET_CONSTRUCTION",
+        description = {
+            name        = _("NRA - Central telephonique"),
+            description = _("Noeud de Raccordement d'Abonnes (NRA). Central telephonique cuivre desservant les abonnes dans un rayon de 1500 m. Infrastructure de base du reseau fixe francais, deployee a partir de 1974."),
+        },
+        availability = {
+            yearFrom = 1974,
+            yearTo   = 9999,
+        },
+        buildMode  = "SINGLE",
+        category   = "misc",
+        cost       = { price = 15000 },
+        maintenance = { price = 100 },
+        params = {},
+        updateFn = function(params)
+            return {
+                models = {
+                    {
+                        id    = "telecom/cabinet.mdl",
+                        transf = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 },
+                    },
+                },
+                groundFaces = {},
+                metadata = {
+                    telecom = {
+                        kind   = "NRA",
+                        radius = 1500,
+                    }
+                },
+            }
+        end,
+    }
+end

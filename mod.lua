@@ -6,21 +6,27 @@
 function data()
     return {
         info = {
-            name        = _("Réseaux de communication"),
-            description = _([[Ajoute des infrastructures télécoms historiques qui augmentent la croissance de vos villes :
-• 1850 — Poteau téléphonique filaire  (+5% croissance)
-• 1990 — Antenne mobile 2G            (+10% croissance)
-• 2020 — Nœud fibre optique           (+20% croissance)
-• 2030 — Antenne 5G                   (+15% croissance mobile)
+            name        = _("Reseaux de communication"),
+            description = _([[Ajoute des infrastructures telecoms realistes qui augmentent la croissance de vos villes :
 
-Bonus synergie : +20% si une ville est couverte en filaire ET en mobile.
-Bonus cumulatif plafonné à +60%. Deux calques visuels disponibles (filaire / mobile).
-Placez les nœuds depuis l'onglet Construction → Divers.]]),
-            minorVersion  = 1,
+Infrastructure fixe :
+  NRA (1974) — Central telephonique cuivre, portee 1500 m (+3%)
+  NRO (2007) — Noeud fibre optique FTTH, portee 3000 m (+8%)
+
+Infrastructure mobile :
+  Antenne telecom (1992+) — Multi-technologies configurables :
+    2G (1992, 2000 m), 3G (2004, 1500 m), 3G+ (2006, 1500 m),
+    4G (2012, 1200 m), 4G+ (2014, 1200 m), 5G (2020, 800 m),
+    5G+ (2023, 500 m)
+
+Bonus synergie x1.2 si couverture fixe + mobile.
+Bonus cumulatif plafonne a +60%.
+Placez les noeuds depuis Construction > Divers.]]),
+            minorVersion  = 2,
             severityAdd   = "NONE",
             severityRemove = "NONE",
             authors       = { "elfloww" },
-            tags          = { "gameplay", "city growth", "infrastructure" },
+            tags          = { "gameplay", "city growth", "infrastructure", "telecom" },
             tfnetId       = "com.elfloww.telecom_networks",
         },
 

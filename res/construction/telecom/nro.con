@@ -1,0 +1,39 @@
+-- NRO — Nœud de Raccordement Optique
+-- Point de convergence fibre optique FTTH (2007)
+-- Portée fixe : 3 000 m
+
+function data()
+    return {
+        type = "STREET_CONSTRUCTION",
+        description = {
+            name        = _("NRO - Noeud fibre optique"),
+            description = _("Noeud de Raccordement Optique (NRO). Point de convergence des lignes fibre optique FTTH. Dessert les abonnes dans un rayon de 3000 m avec un tres haut debit. Deploye en France a partir de 2007."),
+        },
+        availability = {
+            yearFrom = 2007,
+            yearTo   = 9999,
+        },
+        buildMode  = "SINGLE",
+        category   = "misc",
+        cost       = { price = 50000 },
+        maintenance = { price = 400 },
+        params = {},
+        updateFn = function(params)
+            return {
+                models = {
+                    {
+                        id    = "telecom/cabinet.mdl",
+                        transf = { 1.5,0,0,0, 0,1.5,0,0, 0,0,1.5,0, 0,0,0,1 },
+                    },
+                },
+                groundFaces = {},
+                metadata = {
+                    telecom = {
+                        kind   = "NRO",
+                        radius = 3000,
+                    }
+                },
+            }
+        end,
+    }
+end

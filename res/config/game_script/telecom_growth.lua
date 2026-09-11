@@ -6,46 +6,57 @@
 -- FONCTIONNEMENT :
 --   Ce game_script est appelé par le moteur TF2 à chaque tick de simulation.
 --   Toutes les TICK_INTERVAL secondes de jeu, il :
---     1. Scanne toutes les constructions pour trouver les nœuds télécoms
---     2. Scanne toutes les villes pour obtenir leur position
---     3. Calcule la couverture de chaque ville (WIRE et MOBILE séparément)
+--     1. Scanne les constructions pour trouver NRA, NRO et Antennes
+--     2. Scanne les villes pour obtenir leur position
+--     3. Calcule la couverture (fixe + mobile)
 --     4. Détermine le bonus global de croissance à appliquer
 --     5. Modifie game.config.townDevelopInterval dynamiquement
 --
 --   La partie UI (guiInit / guiUpdate) tourne sur le thread UI séparé.
---   Elle utilise api.gui pour afficher une fenêtre de statut avec un bouton
---   toggle dans la barre du jeu.
+--   Elle utilise game.interface.getEntities pour scanner les constructions
+--   et api.gui pour afficher une fenêtre de statut.
 --
--- BONUS PAR ÉPOQUE (cumulatif, plafonné à MAX_BONUS) :
---   WIRE  1850 : +5%  par ville couverte
---   WIRE  2020 : +20% par ville couverte (remplace le 1850 si les deux existent)
---   MOBILE 1990 : +10% par ville couverte
---   MOBILE 2030 : +15% par ville couverte (remplace le 1990 si les deux existent)
---   Bonus combiné WIRE+MOBILE : multiplicateur x1.2 (synergie)
+-- INFRASTRUCTURES :
+--   NRA  (1974) : Central cuivre, portée 1500 m, bonus +3%
+--   NRO  (2007) : Nœud fibre optique, portée 3000 m, bonus +8%
+--   Antenne (1992+) : Multi-technologie, portée et bonus par génération
+--
+-- TECHNOLOGIES ANTENNE (bonus par ville couverte) :
+--   2G  (1992) : 2000 m, +2%
+--   3G  (2004) : 1500 m, +3%
+--   3G+ (2006) : 1500 m, +4%
+--   4G  (2012) : 1200 m, +5%
+--   4G+ (2014) : 1200 m, +6%
+--   5G  (2020) :  800 m, +8%
+--   5G+ (2023) :  500 m, +10%
+--
+-- Bonus synergie : x1.2 si une ville a à la fois couverture fixe ET mobile
+-- Bonus cumulatif plafonné à MAX_BONUS.
 -- =============================================================================
 
 local TICK_INTERVAL = 60   -- secondes de jeu entre deux recalculs
-local BASE_GROWTH   = 1.0  -- valeur par défaut
 local MAX_BONUS     = 0.60 -- bonus maximal cumulable (+60%)
+local SYNERGY_MULT  = 1.2  -- multiplicateur si fixe + mobile
 
--- Bonus de base par type et époque (la meilleure époque disponible est retenue)
-local WIRE_BONUS = {
-    [1850] = 0.05,
-    [2020] = 0.20,
-}
-local MOBILE_BONUS = {
-    [1990] = 0.10,
-    [2030] = 0.15,
+-- Définition des technologies antenne : { année, portée, bonus }
+local ANTENNA_TECHS = {
+    { year = 1992, radius = 2000, bonus = 0.02, name = "2G"  },  -- param index 1
+    { year = 2004, radius = 1500, bonus = 0.03, name = "3G"  },  -- param index 2
+    { year = 2006, radius = 1500, bonus = 0.04, name = "3G+" },  -- param index 3
+    { year = 2012, radius = 1200, bonus = 0.05, name = "4G"  },  -- param index 4
+    { year = 2014, radius = 1200, bonus = 0.06, name = "4G+" },  -- param index 5
+    { year = 2020, radius =  800, bonus = 0.08, name = "5G"  },  -- param index 6
+    { year = 2023, radius =  500, bonus = 0.10, name = "5G+" },  -- param index 7
 }
 
--- Multiplicateur si une ville a à la fois couverture WIRE et MOBILE
-local SYNERGY_MULT = 1.2
+-- Bonus fixe par type d'infrastructure
+local NRA_BONUS = 0.03
+local NRO_BONUS = 0.08
 
 -- =============================================================================
 -- UTILITAIRES
 -- =============================================================================
 
---- Distance euclidienne 2D entre deux positions (ignore Z)
 local function dist2D(a, b)
     if not a or not b then return math.huge end
     local dx = (a.x or 0) - (b.x or 0)
@@ -53,16 +64,14 @@ local function dist2D(a, b)
     return math.sqrt(dx * dx + dy * dy)
 end
 
---- Extrait la position XY depuis un composant TRANSFORM
 local function posFromTransf(tf)
     if not tf or not tf.transf then return nil end
     local t = tf.transf
-    -- La matrice TF2 est column-major : indices 13, 14, 15 = translation X, Y, Z
     return { x = t[13] or 0, y = t[14] or 0, z = t[15] or 0 }
 end
 
 -- =============================================================================
--- COLLECTE DES NOEUDS TELECOM
+-- COLLECTE DES NOEUDS TELECOM (Thread Moteur)
 -- =============================================================================
 local function collectTelecomNodes()
     local nodes = {}
@@ -77,58 +86,82 @@ local function collectTelecomNodes()
     end
     if not ok or not entities then return nodes end
 
+    -- Récupérer l'année courante
+    local currentYear = 2000
+    pcall(function()
+        local clock = api.engine.getComponent(0, api.type.ComponentType.GAME_TIME)
+        if clock and clock.date then
+            currentYear = clock.date.year or 2000
+        end
+    end)
+    pcall(function()
+        if game and game.interface and game.interface.getGameTime then
+            local gt = game.interface.getGameTime()
+            if gt and gt.date and gt.date.year then
+                currentYear = gt.date.year
+            end
+        end
+    end)
+
     for _, id in ipairs(entities) do
         local success, con = pcall(function()
             return api.engine.getComponent(id, api.type.ComponentType.CONSTRUCTION)
         end)
         if success and con then
             local fileName = con.fileName or ""
-            local kind, radius, epoch
 
-            if fileName:find("fixed_line_1850") then
-                kind  = "WIRE"
-                epoch = 1850
-            elseif fileName:find("fiber_2020") then
-                kind  = "WIRE"
-                epoch = 2020
-            elseif fileName:find("mobile_1990") then
-                kind  = "MOBILE"
-                epoch = 1990
-            elseif fileName:find("mobile_2030") then
-                kind  = "MOBILE"
-                epoch = 2030
-            end
-
-            if kind then
+            if fileName:find("telecom/nra") then
+                -- NRA : portée fixe 1500 m
                 local tf  = api.engine.getComponent(id, api.type.ComponentType.TRANSFORM)
                 local pos = posFromTransf(tf)
-
-                -- Récupérer le rayon depuis les params de construction
-                local r = 300
-                if con.params and con.params[1] then
-                    local pIdx = (con.params[1] or 0)
-                    if kind == "WIRE" and epoch == 1850 then
-                        local radii = { 100, 200, 300, 400, 500 }
-                        r = radii[pIdx + 1] or 300
-                    elseif kind == "WIRE" and epoch == 2020 then
-                        local radii = { 300, 450, 600, 900, 1200 }
-                        r = radii[pIdx + 1] or 600
-                    elseif kind == "MOBILE" and epoch == 1990 then
-                        local radii = { 400, 600, 800, 1000 }
-                        r = radii[pIdx + 1] or 600
-                    elseif kind == "MOBILE" and epoch == 2030 then
-                        local radii = { 800, 1200, 1600, 2000 }
-                        r = radii[pIdx + 1] or 1200
-                    end
+                if pos then
+                    table.insert(nodes, {
+                        id     = id,
+                        kind   = "NRA",
+                        radius = 1500,
+                        bonus  = NRA_BONUS,
+                        pos    = pos,
+                    })
                 end
 
-                table.insert(nodes, {
-                    id     = id,
-                    kind   = kind,
-                    epoch  = epoch,
-                    radius = r,
-                    pos    = pos,
-                })
+            elseif fileName:find("telecom/nro") then
+                -- NRO : portée fixe 3000 m
+                local tf  = api.engine.getComponent(id, api.type.ComponentType.TRANSFORM)
+                local pos = posFromTransf(tf)
+                if pos then
+                    table.insert(nodes, {
+                        id     = id,
+                        kind   = "NRO",
+                        radius = 3000,
+                        bonus  = NRO_BONUS,
+                        pos    = pos,
+                    })
+                end
+
+            elseif fileName:find("telecom/antenna") then
+                -- Antenne : lire les params pour chaque technologie
+                local tf  = api.engine.getComponent(id, api.type.ComponentType.TRANSFORM)
+                local pos = posFromTransf(tf)
+                if pos then
+                    for techIdx, tech in ipairs(ANTENNA_TECHS) do
+                        local isActive = false
+                        pcall(function()
+                            if con.params and con.params[techIdx] then
+                                isActive = (con.params[techIdx] == 1)
+                            end
+                        end)
+                        if isActive and currentYear >= tech.year then
+                            table.insert(nodes, {
+                                id     = id,
+                                kind   = "ANTENNA",
+                                tech   = tech.name,
+                                radius = tech.radius,
+                                bonus  = tech.bonus,
+                                pos    = pos,
+                            })
+                        end
+                    end
+                end
             end
         end
     end
@@ -136,7 +169,7 @@ local function collectTelecomNodes()
 end
 
 -- =============================================================================
--- COLLECTE DES VILLES
+-- COLLECTE DES VILLES (Thread Moteur)
 -- =============================================================================
 local function collectTowns()
     local towns = {}
@@ -153,8 +186,6 @@ local function collectTowns()
     for _, id in ipairs(townIds) do
         local tf  = api.engine.getComponent(id, api.type.ComponentType.TRANSFORM)
         local pos = posFromTransf(tf)
-
-        -- Essayer de récupérer le nom de la ville
         local townName = ""
         pcall(function()
             local nameComp = api.engine.getComponent(id, api.type.ComponentType.NAME)
@@ -162,7 +193,6 @@ local function collectTowns()
                 townName = nameComp.name
             end
         end)
-
         if pos then
             table.insert(towns, { id = id, pos = pos, name = townName })
         end
@@ -177,8 +207,10 @@ local function computeCoverage(nodes, towns)
     local coverage = {}
     for _, town in ipairs(towns) do
         coverage[town.id] = {
-            wireEpoch   = nil,
-            mobileEpoch = nil,
+            hasFixed    = false,   -- couvert par NRA ou NRO
+            hasMobile   = false,   -- couvert par au moins une tech antenne
+            fixedBonus  = 0,
+            mobileBonus = 0,
             townName    = town.name or "",
         }
     end
@@ -188,14 +220,12 @@ local function computeCoverage(nodes, towns)
             for _, town in ipairs(towns) do
                 if dist2D(node.pos, town.pos) <= node.radius then
                     local c = coverage[town.id]
-                    if node.kind == "WIRE" then
-                        if not c.wireEpoch or node.epoch > c.wireEpoch then
-                            c.wireEpoch = node.epoch
-                        end
-                    elseif node.kind == "MOBILE" then
-                        if not c.mobileEpoch or node.epoch > c.mobileEpoch then
-                            c.mobileEpoch = node.epoch
-                        end
+                    if node.kind == "NRA" or node.kind == "NRO" then
+                        c.hasFixed = true
+                        c.fixedBonus = math.max(c.fixedBonus, node.bonus)
+                    elseif node.kind == "ANTENNA" then
+                        c.hasMobile = true
+                        c.mobileBonus = c.mobileBonus + node.bonus
                     end
                 end
             end
@@ -210,23 +240,17 @@ end
 local function computeGlobalBonus(coverage, totalTowns)
     if totalTowns == 0 then return 0 end
 
-    local totalBonus = 0
+    local totalBonus   = 0
     local coveredTowns = 0
 
     for _, c in pairs(coverage) do
-        local wireB   = 0
-        local mobileB = 0
+        local fixedB  = c.fixedBonus
+        local mobileB = c.mobileBonus
 
-        if c.wireEpoch then
-            wireB = WIRE_BONUS[c.wireEpoch] or 0
-        end
-        if c.mobileEpoch then
-            mobileB = MOBILE_BONUS[c.mobileEpoch] or 0
-        end
-
-        if wireB > 0 or mobileB > 0 then
-            local bonus = wireB + mobileB
-            if wireB > 0 and mobileB > 0 then
+        if fixedB > 0 or mobileB > 0 then
+            local bonus = fixedB + mobileB
+            -- Synergie fixe + mobile
+            if fixedB > 0 and mobileB > 0 then
                 bonus = bonus * SYNERGY_MULT
             end
             totalBonus   = totalBonus + bonus
@@ -244,160 +268,75 @@ local function computeGlobalBonus(coverage, totalTowns)
 end
 
 -- =============================================================================
--- DIAGNOSTIC (1 seule fois au premier tick)
+-- POINT D'ENTREE DU GAME SCRIPT
 -- =============================================================================
-local _diagDone = false
-local function runDiagnostic()
-    if _diagDone then return end
-    _diagDone = true
-    print("[Telecom] === MOD TELECOM ACTIF ===")
-    print("[Telecom] Version 2.0 — groundFaces + UI Window")
-    if game and game.config then
-        local interval = game.config.townDevelopInterval
-        print("[Telecom] townDevelopInterval = " .. tostring(interval))
-    end
-    print("[Telecom] =========================")
-end
-
--- =============================================================================
--- APPLICATION DU BONUS
--- =============================================================================
-local _lastLoggedBonus = -1
-
-local function applyBonus(bonus)
-    if not game or not game.config then return end
-
-    if game.config.townDevelopInterval ~= nil then
-        local DEFAULT_INTERVAL = 60
-        local MIN_INTERVAL     = 20
-        local newInterval = math.floor(DEFAULT_INTERVAL - (DEFAULT_INTERVAL - MIN_INTERVAL) * bonus / MAX_BONUS)
-        newInterval = math.max(MIN_INTERVAL, math.min(DEFAULT_INTERVAL, newInterval))
-        game.config.townDevelopInterval = newInterval
-
-        -- Log uniquement si le bonus change significativement
-        local bonusPct = math.floor(bonus * 100)
-        if bonusPct ~= _lastLoggedBonus then
-            _lastLoggedBonus = bonusPct
-            print("[Telecom] Bonus: +" .. bonusPct .. "% → townDevelopInterval = " .. newInterval)
-        end
-    end
-end
-
--- =============================================================================
--- POINT D'ENTRÉE DU GAME SCRIPT
--- =============================================================================
-
--- Table de communication entre thread moteur (update) et thread UI (guiUpdate).
--- Le thread moteur écrit ici ; guiUpdate lit seulement.
-_telecom_ui_data = {
-    wireNodes    = 0,
-    mobileNodes  = 0,
-    townCount    = 0,
-    coveredTowns = 0,
-    coverPct     = 0,
-    bonusPct     = 0,
-    interval     = 60,
-    ready        = false,
-}
+local _lastTick    = 0
+local _firstUpdate = true
 
 function data()
     return {
-        -- =====================================================================
-        -- ENGINE THREAD : init / update / save / load
-        -- =====================================================================
-
         init = function()
-            return {
-                tick      = 0,
-                nodes     = {},
-                coverage  = {},
-                lastBonus = 0,
-                townCount = 0,
-                nodeCount = 0,
-            }
-        end,
-
-        update = function(state)
-            if not state then
-                state = { tick = 0, nodes = {}, coverage = {}, lastBonus = 0, townCount = 0, nodeCount = 0 }
-            end
-
-            runDiagnostic()
-
-            state.tick = (state.tick or 0) + 1
-            if state.tick % TICK_INTERVAL ~= 0 then return state end
-
-            local nodes    = collectTelecomNodes()
-            local towns    = collectTowns()
-            local coverage = computeCoverage(nodes, towns)
-            local bonus    = computeGlobalBonus(coverage, #towns)
-
-            applyBonus(bonus)
-
-            -- Compter les nœuds par type
-            local wireNodes   = 0
-            local mobileNodes = 0
-            for _, n in ipairs(nodes) do
-                if n.kind == "WIRE" then wireNodes = wireNodes + 1
-                else mobileNodes = mobileNodes + 1 end
-            end
-
-            -- Villes couvertes
-            local coveredTowns = 0
-            for townId, c in pairs(coverage) do
-                if c.wireEpoch or c.mobileEpoch then
-                    coveredTowns = coveredTowns + 1
+            pcall(function()
+                print("[Telecom] === MOD TELECOM ACTIF ===")
+                print("[Telecom] Version 3.0 — NRA / NRO / Antenne multi-tech")
+                if game and game.config then
+                    print("[Telecom] townDevelopInterval = " .. tostring(game.config.townDevelopInterval))
                 end
-            end
-
-            local townCount = #towns
-            local coverPct  = townCount > 0 and math.floor(coveredTowns * 100 / townCount) or 0
-            local interval  = (game and game.config and game.config.townDevelopInterval) or 60
-            local bonusPct  = 0
-            if interval < 60 then
-                bonusPct = math.floor(60.0 * (1.0 - (interval / 60.0)) + 0.5)
-            end
-
-            -- Écrire dans la table de communication UI
-            _telecom_ui_data.wireNodes    = wireNodes
-            _telecom_ui_data.mobileNodes  = mobileNodes
-            _telecom_ui_data.townCount    = townCount
-            _telecom_ui_data.coveredTowns = coveredTowns
-            _telecom_ui_data.coverPct     = coverPct
-            _telecom_ui_data.bonusPct     = bonusPct
-            _telecom_ui_data.interval     = interval
-            _telecom_ui_data.ready        = true
-
-            state.nodes     = nodes
-            state.coverage  = coverage
-            state.lastBonus = bonus
-            state.townCount = townCount
-            state.nodeCount = #nodes
-
-            return state
+                print("[Telecom] =========================")
+            end)
         end,
 
-        save = function(state)
-            if not state then
-                return { tick = 0, lastBonus = 0, townCount = 0, nodeCount = 0 }
-            end
-            return {
-                tick      = state.tick      or 0,
-                lastBonus = state.lastBonus or 0,
-                townCount = state.townCount or 0,
-                nodeCount = state.nodeCount or 0,
-            }
-        end,
+        update = function()
+            pcall(function()
+                if not (api and api.engine and api.type) then return end
+                if not (api.type.EntityType and api.type.ComponentType) then return end
 
-        load = function(saved)
-            return {
-                tick      = saved and saved.tick      or 0,
-                lastBonus = saved and saved.lastBonus or 0,
-                townCount = saved and saved.townCount or 0,
-                nodeCount = saved and saved.nodeCount or 0,
-                nodes     = {},
-                coverage  = {},
-            }
+                local now = 0
+                pcall(function()
+                    now = api.engine.getComponent(0, api.type.ComponentType.GAME_TIME).time or 0
+                end)
+                if now - _lastTick < TICK_INTERVAL then return end
+                _lastTick = now
+
+                -- 1. Collecter les noeuds et les villes
+                local nodes = collectTelecomNodes()
+                local towns = collectTowns()
+
+                if _firstUpdate then
+                    _firstUpdate = false
+                    local nraCount, nroCount, antCount = 0, 0, 0
+                    for _, n in ipairs(nodes) do
+                        if n.kind == "NRA" then nraCount = nraCount + 1
+                        elseif n.kind == "NRO" then nroCount = nroCount + 1
+                        elseif n.kind == "ANTENNA" then antCount = antCount + 1
+                        end
+                    end
+                    print("[Telecom] Premier scan: " .. #towns .. " villes, "
+                        .. nraCount .. " NRA, " .. nroCount .. " NRO, "
+                        .. antCount .. " tech antenne actives")
+                end
+
+                -- 2. Calculer la couverture
+                local coverage    = computeCoverage(nodes, towns)
+                local townCount   = #towns
+
+                -- 3. Compteurs
+                local coveredTowns = 0
+                for _, c in pairs(coverage) do
+                    if c.hasFixed or c.hasMobile then
+                        coveredTowns = coveredTowns + 1
+                    end
+                end
+
+                -- 4. Calculer le bonus global
+                local globalBonus = computeGlobalBonus(coverage, townCount)
+
+                -- 5. Appliquer le nouveau townDevelopInterval
+                if game and game.config then
+                    local newInterval = math.max(1, math.floor(60 * (1.0 - globalBonus)))
+                    game.config.townDevelopInterval = newInterval
+                end
+            end)
         end,
 
         -- =====================================================================
@@ -415,37 +354,50 @@ function data()
                     return
                 end
 
-                -- ----------------------------------------------------------------
-                -- CONSTRUCTION DE LA FENETRE
-                -- ----------------------------------------------------------------
                 local existing = api.gui.util.getById("telecom_status_window")
                 if existing then existing:destroy() end
 
+                -- ----------------------------------------------------------------
+                -- CONSTRUCTION DE LA FENETRE
+                -- ----------------------------------------------------------------
                 local outerLayout = api.gui.layout.BoxLayout.new("VERTICAL")
 
                 -- En-tête
-                local title = api.gui.comp.TextView.new("📡  Réseaux de Communication")
+                local title = api.gui.comp.TextView.new("📡  Reseaux de Communication")
                 title:setId("telecom_title")
                 outerLayout:addItem(title)
 
-                local sep1 = api.gui.comp.TextView.new("────────────────────────────")
+                local sep1 = api.gui.comp.TextView.new("────────────────────────────────")
                 outerLayout:addItem(sep1)
 
-                -- Section infrastructure
-                local secInfra = api.gui.comp.TextView.new("[ Infrastructures ]")
-                outerLayout:addItem(secInfra)
+                -- Section Infrastructure Fixe
+                local secFixed = api.gui.comp.TextView.new("[ Infrastructure Fixe ]")
+                outerLayout:addItem(secFixed)
 
-                local infraText = api.gui.comp.TextView.new(
-                    "  Filaire  : 0 noeud(s)\n" ..
-                    "  Mobile   : 0 antenne(s)"
+                local fixedText = api.gui.comp.TextView.new(
+                    "  NRA : 0  |  NRO : 0"
                 )
-                infraText:setId("telecom_infra_text")
-                outerLayout:addItem(infraText)
+                fixedText:setId("telecom_fixed_text")
+                outerLayout:addItem(fixedText)
 
-                local sep2 = api.gui.comp.TextView.new("────────────────────────────")
+                local sep2 = api.gui.comp.TextView.new("────────────────────────────────")
                 outerLayout:addItem(sep2)
 
-                -- Section couverture
+                -- Section Infrastructure Mobile
+                local secMobile = api.gui.comp.TextView.new("[ Infrastructure Mobile ]")
+                outerLayout:addItem(secMobile)
+
+                local mobileText = api.gui.comp.TextView.new(
+                    "  Antennes : 0\n" ..
+                    "  Technologies : aucune"
+                )
+                mobileText:setId("telecom_mobile_text")
+                outerLayout:addItem(mobileText)
+
+                local sep3 = api.gui.comp.TextView.new("────────────────────────────────")
+                outerLayout:addItem(sep3)
+
+                -- Section Couverture
                 local secCov = api.gui.comp.TextView.new("[ Couverture ]")
                 outerLayout:addItem(secCov)
 
@@ -456,26 +408,26 @@ function data()
                 covText:setId("telecom_cov_text")
                 outerLayout:addItem(covText)
 
-                local sep3 = api.gui.comp.TextView.new("────────────────────────────")
-                outerLayout:addItem(sep3)
+                local sep4 = api.gui.comp.TextView.new("────────────────────────────────")
+                outerLayout:addItem(sep4)
 
-                -- Section bonus
+                -- Section Bonus
                 local secBonus = api.gui.comp.TextView.new("[ Effet sur la croissance ]")
                 outerLayout:addItem(secBonus)
 
                 local bonusText = api.gui.comp.TextView.new(
                     "  Bonus actuel : +0%\n" ..
-                    "  Intervalle   : 60 ticks (défaut)"
+                    "  Intervalle   : 60 ticks (defaut)"
                 )
-                bonusText:setId("telecom_status_text")
+                bonusText:setId("telecom_bonus_text")
                 outerLayout:addItem(bonusText)
 
                 -- Pied de fenêtre
-                local sep4 = api.gui.comp.TextView.new("────────────────────────────")
-                outerLayout:addItem(sep4)
+                local sep5 = api.gui.comp.TextView.new("────────────────────────────────")
+                outerLayout:addItem(sep5)
 
                 local footer = api.gui.comp.TextView.new(
-                    "Placez des infrastructures autour\n" ..
+                    "Placez NRA/NRO/Antennes pres\n" ..
                     "de vos villes pour les connecter."
                 )
                 outerLayout:addItem(footer)
@@ -483,21 +435,21 @@ function data()
                 -- ----------------------------------------------------------------
                 -- FENETRE PRINCIPALE
                 -- ----------------------------------------------------------------
-                local window = api.gui.comp.Window.new("Telecom — Réseaux de Communication", outerLayout)
+                local window = api.gui.comp.Window.new("Telecom - Reseaux", outerLayout)
                 window:setId("telecom_status_window")
 
                 if window.addHideOnCloseHandler then
                     window:addHideOnCloseHandler()
                 end
                 if api.gui.util and api.gui.util.Size then
-                    window:setSize(api.gui.util.Size.new(500, 520))
+                    window:setSize(api.gui.util.Size.new(520, 580))
                 end
 
                 window:setVisible(true, false)
                 print("[Telecom] Fenetre principale creee et visible")
 
                 -- ----------------------------------------------------------------
-                -- BOUTON TOGGLE DANS LE JEU
+                -- BOUTON TOGGLE
                 -- ----------------------------------------------------------------
                 local btnLabel = api.gui.comp.TextView.new("Telecom")
                 local toggleBtn = api.gui.comp.Button.new(btnLabel, true)
@@ -511,14 +463,13 @@ function data()
                     end)
                 end)
 
-                -- Injection du bouton (peut échouer selon les IDs)
                 local injected = false
                 pcall(function()
                     local gi = api.gui.util.getById("gameInfo")
                     if gi then
                         local lay = gi:getLayout()
                         if lay then
-                            local ok2, err2 = pcall(function() lay:addItem(toggleBtn) end)
+                            local ok2 = pcall(function() lay:addItem(toggleBtn) end)
                             if ok2 then injected = true end
                         end
                     end
@@ -531,7 +482,6 @@ function data()
             end
         end,
 
-
         guiUpdate = function()
             pcall(function()
                 _telecom_gui_tick = (_telecom_gui_tick or 0) + 1
@@ -539,94 +489,81 @@ function data()
                 if not (api and api.gui and api.gui.util) then return end
                 if not (game and game.interface) then return end
 
-                local infraText = api.gui.util.getById("telecom_infra_text")
-                local covText   = api.gui.util.getById("telecom_cov_text")
-                local bonusText = api.gui.util.getById("telecom_status_text")
-                if not infraText and not covText and not bonusText then return end
+                local fixedText  = api.gui.util.getById("telecom_fixed_text")
+                local mobileText = api.gui.util.getById("telecom_mobile_text")
+                local covText    = api.gui.util.getById("telecom_cov_text")
+                local bonusText  = api.gui.util.getById("telecom_bonus_text")
+                if not fixedText and not mobileText and not covText and not bonusText then return end
 
                 -- ============================================================
-                -- 1. SCAN DES CONSTRUCTIONS / ASSETS (UI Thread)
+                -- 1. SCAN DES CONSTRUCTIONS TELECOM (UI Thread)
                 -- ============================================================
-                local wireNodes = 0
-                local mobileNodes = 0
-                local nodes = {}
-                local debugStr = ""
+                local nraCount  = 0
+                local nroCount  = 0
+                local antCount  = 0
+                local techCounts = {}  -- tech name -> count
+                local nodes = {}       -- { x, y, r } pour calcul couverture
 
                 pcall(function()
-                    local function scanType(typeStr)
-                        local ids = game.interface.getEntities({pos={0,0}, radius=999999}, {type=typeStr}) or {}
-                        for _, eid in ipairs(ids) do
-                            pcall(function()
-                                local e = game.interface.getEntity(eid)
-                                if e then
-                                    local isTelecom = false
-                                    local isWire = false
-                                    local matchStr = ""
-                                    
-                                    -- Check fileName (pour les .con)
-                                    if e.fileName and e.fileName:find("telecom") then
-                                        isTelecom = true
-                                        matchStr = e.fileName
-                                        if e.fileName:find("fixed_line") or e.fileName:find("fiber") then isWire = true end
+                    local ids = game.interface.getEntities({pos={0,0}, radius=999999}, {type="CONSTRUCTION"}) or {}
+                    for _, eid in ipairs(ids) do
+                        pcall(function()
+                            local e = game.interface.getEntity(eid)
+                            if e and e.fileName then
+                                local fn = e.fileName
+
+                                if fn:find("telecom/nra") then
+                                    nraCount = nraCount + 1
+                                    local p = e.position
+                                    if p then
+                                        table.insert(nodes, {
+                                            x = p.x or p[1] or 0,
+                                            y = p.y or p[2] or 0,
+                                            r = 1500,
+                                        })
                                     end
-                                    
-                                    -- Check models (pour les assets purs)
-                                    if not isTelecom and e.models then
-                                        for _, mdl in pairs(e.models) do
-                                            local mName = type(mdl) == "string" and mdl or (type(mdl) == "table" and mdl[1] or "")
-                                            if mName:find("telecom") then
-                                                isTelecom = true
-                                                matchStr = mName
-                                                if mName:find("pole") or mName:find("cabinet") or mName:find("fixed_line") or mName:find("fiber") then
-                                                    isWire = true
-                                                end
-                                                break
-                                            end
-                                        end
+
+                                elseif fn:find("telecom/nro") then
+                                    nroCount = nroCount + 1
+                                    local p = e.position
+                                    if p then
+                                        table.insert(nodes, {
+                                            x = p.x or p[1] or 0,
+                                            y = p.y or p[2] or 0,
+                                            r = 3000,
+                                        })
                                     end
-                                    
-                                    if isTelecom then
-                                        debugStr = debugStr .. "\n[Debug] Trouve: " .. matchStr
-                                        if isWire then wireNodes = wireNodes + 1
-                                        else mobileNodes = mobileNodes + 1 end
-                                        
-                                        local radius = 600
+
+                                elseif fn:find("telecom/antenna") then
+                                    antCount = antCount + 1
+                                    local p = e.position
+                                    local px = p and (p.x or p[1] or 0) or 0
+                                    local py = p and (p.y or p[2] or 0) or 0
+
+                                    -- Lire les params : indices 1-7 pour les 7 technologies
+                                    for techIdx, tech in ipairs(ANTENNA_TECHS) do
                                         pcall(function()
-                                            if e.params and e.params[1] then
-                                                local p = e.params[1]
-                                                if matchStr:find("fixed_line_1850") then radius = ({100,200,300,400,500})[p+1] or 300
-                                                elseif matchStr:find("fiber_2020") then radius = ({300,450,600,900,1200})[p+1] or 600
-                                                elseif matchStr:find("mobile_1990") then radius = ({400,600,800,1000})[p+1] or 600
-                                                elseif matchStr:find("mobile_2030") then radius = ({800,1200,1600,2000})[p+1] or 1200
+                                            if e.params and e.params[techIdx] and e.params[techIdx] == 1 then
+                                                techCounts[tech.name] = (techCounts[tech.name] or 0) + 1
+                                                if p then
+                                                    table.insert(nodes, {
+                                                        x = px, y = py,
+                                                        r = tech.radius,
+                                                    })
                                                 end
-                                            else
-                                                if matchStr:find("fixed_line") or matchStr:find("pole") or matchStr:find("cabinet") then radius = 300
-                                                elseif matchStr:find("mobile_2030") or matchStr:find("tower") then radius = 1200 end
                                             end
                                         end)
-                                        
-                                        local p = e.position
-                                        if p then
-                                            table.insert(nodes, {
-                                                x = p.x or p[1] or 0,
-                                                y = p.y or p[2] or 0,
-                                                r = radius
-                                            })
-                                        end
                                     end
                                 end
-                            end)
-                        end
+                            end
+                        end)
                     end
-                    
-                    scanType("CONSTRUCTION")
-                    scanType("ASSET_GROUP")
                 end)
 
                 -- ============================================================
                 -- 2. SCAN DES VILLES ET CALCUL COUVERTURE (UI Thread)
                 -- ============================================================
-                local townCount = 0
+                local townCount    = 0
                 local coveredTowns = 0
                 pcall(function()
                     local tids = game.interface.getTowns() or {}
@@ -637,16 +574,14 @@ function data()
                             if t and t.position then
                                 local tx = t.position.x or t.position[1] or 0
                                 local ty = t.position.y or t.position[2] or 0
-                                local isCov = false
                                 for _, n in ipairs(nodes) do
                                     local dx = tx - n.x
                                     local dy = ty - n.y
                                     if (dx*dx + dy*dy) <= (n.r * n.r) then
-                                        isCov = true
+                                        coveredTowns = coveredTowns + 1
                                         break
                                     end
                                 end
-                                if isCov then coveredTowns = coveredTowns + 1 end
                             end
                         end)
                     end
@@ -668,24 +603,36 @@ function data()
                 local coverPct = townCount > 0 and math.floor(coveredTowns * 100 / townCount) or 0
 
                 -- ============================================================
-                -- AFFICHAGE AVEC DEBUG
+                -- AFFICHAGE
                 -- ============================================================
-                if infraText then
-                    if debugStr == "" then debugStr = "\n[Debug] Aucune antenne/asset trouve" end
-                    infraText:setText(
-                        "  Filaire  : " .. wireNodes .. " noeud(s)\n" ..
-                        "  Mobile   : " .. mobileNodes .. " antenne(s)" .. debugStr
+                if fixedText then
+                    fixedText:setText(
+                        "  NRA : " .. nraCount .. "  |  NRO : " .. nroCount
+                    )
+                end
+
+                if mobileText then
+                    -- Construire la liste des technologies actives
+                    local techList = ""
+                    for _, tech in ipairs(ANTENNA_TECHS) do
+                        local cnt = techCounts[tech.name] or 0
+                        if cnt > 0 then
+                            if techList ~= "" then techList = techList .. ", " end
+                            techList = techList .. tech.name .. " (x" .. cnt .. ")"
+                        end
+                    end
+                    if techList == "" then techList = "aucune" end
+
+                    mobileText:setText(
+                        "  Antennes : " .. antCount .. "\n" ..
+                        "  Technologies : " .. techList
                     )
                 end
 
                 if covText then
-                    local bonusStr = bonusPct > 0
-                        and ("+" .. bonusPct .. "% de croissance actif")
-                        or "Placez des infrastructures"
                     covText:setText(
                         "  Villes couvertes : " .. coveredTowns .. " / " .. townCount .. "\n" ..
-                        "  Taux             : " .. coverPct .. "%\n" ..
-                        "  " .. bonusStr
+                        "  Taux             : " .. coverPct .. "%"
                     )
                 end
 
